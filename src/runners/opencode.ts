@@ -32,7 +32,10 @@ export class OpenCodeRunner implements Runner {
   async run(opts: RunnerOptions): Promise<RunResult> {
     if (!opts.authPath || opts.authPath.trim().length === 0) {
       logger.error("authPath is missing for trigger");
-      return { exitCode: 1 };
+      return {
+        exitCode: 1,
+        errorMessage: "authPath is missing for trigger"
+      };
     }
 
     const cwd = opts.authPath;
@@ -52,16 +55,22 @@ export class OpenCodeRunner implements Runner {
       env: {
         ...process.env,
         AGENTTEAMS_API_KEY: opts.apiKey,
-        AGENTTEAMS_API_URL: opts.apiUrl
+        AGENTTEAMS_API_URL: opts.apiUrl,
+        AGENTTEAMS_AGENT_NAME: opts.agentConfigId
       }
     });
 
     const logStream = createWriteStream(logPath, { flags: "a" });
     child.stdout?.pipe(logStream);
     child.stderr?.pipe(logStream);
+    let lastOutput = "";
+    let lastErrorOutput = "";
+
     child.stdout?.on("data", (chunk) => {
       const output = toOutputPreview(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk);
       if (output.length > 0) {
+        lastOutput = output;
+        opts.onStdoutChunk?.(output);
         logger.info("Runner stdout", {
           triggerId: opts.triggerId,
           pid: child.pid,
@@ -72,6 +81,9 @@ export class OpenCodeRunner implements Runner {
     child.stderr?.on("data", (chunk) => {
       const output = toOutputPreview(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk);
       if (output.length > 0) {
+        lastOutput = output;
+        lastErrorOutput = output;
+        opts.onStderrChunk?.(output);
         logger.warn("Runner stderr", {
           triggerId: opts.triggerId,
           pid: child.pid,
@@ -142,7 +154,11 @@ export class OpenCodeRunner implements Runner {
           triggerId: opts.triggerId,
           error: error.message
         });
-        resolve({ exitCode: 1 });
+        resolve({
+          exitCode: 1,
+          lastOutput,
+          errorMessage: error.message
+        });
       });
 
       child.on("close", (code) => {
@@ -156,11 +172,19 @@ export class OpenCodeRunner implements Runner {
         });
 
         if (timedOut) {
-          resolve({ exitCode: 1 });
+          resolve({
+            exitCode: 1,
+            lastOutput,
+            errorMessage: `Runner timed out after ${opts.timeoutMs}ms`
+          });
           return;
         }
 
-        resolve({ exitCode: code ?? 1 });
+        resolve({
+          exitCode: code ?? 1,
+          lastOutput,
+          errorMessage: code === 0 ? undefined : (lastErrorOutput || lastOutput || `Runner exited with code ${code ?? 1}`)
+        });
       });
     });
   }

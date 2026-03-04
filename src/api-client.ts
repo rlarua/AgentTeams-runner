@@ -1,4 +1,11 @@
-import type { ClaimResult, DaemonInfo, DaemonTrigger, TriggerFinalStatus, TriggerRuntime } from "./types.js";
+import type {
+  ClaimResult,
+  DaemonInfo,
+  DaemonTrigger,
+  TriggerFinalStatus,
+  TriggerLogInput,
+  TriggerRuntime
+} from "./types.js";
 import { logger } from "./logger.js";
 
 const MAX_NETWORK_RETRIES = 3;
@@ -92,14 +99,17 @@ export class DaemonApiClient {
     return { ok: true, conflict: false };
   }
 
-  async updateTriggerStatus(triggerId: string, status: TriggerFinalStatus): Promise<void> {
+  async updateTriggerStatus(triggerId: string, status: TriggerFinalStatus, errorMessage?: string): Promise<void> {
     const response = await this.requestWithRetry(`/api/daemon-triggers/${triggerId}/status`, {
       method: "PATCH",
       headers: {
         ...this.daemonHeaders(),
         "Content-Type": "application/json"
       },
-      body: JSON.stringify({ status })
+      body: JSON.stringify({
+        status,
+        ...(errorMessage ? { errorMessage } : {})
+      })
     });
 
     if (!response.ok) {
@@ -119,5 +129,20 @@ export class DaemonApiClient {
 
     const payload = await response.json() as { data: TriggerRuntime };
     return payload.data;
+  }
+
+  async appendTriggerLogs(triggerId: string, input: { logs?: TriggerLogInput[]; heartbeat?: boolean }): Promise<void> {
+    const response = await this.requestWithRetry(`/api/daemon-triggers/${triggerId}/logs`, {
+      method: "POST",
+      headers: {
+        ...this.daemonHeaders(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(input)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to append trigger logs (${response.status})`);
+    }
   }
 }

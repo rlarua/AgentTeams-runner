@@ -27,6 +27,8 @@ export type DaemonTrigger = {
   status: string;
   agentConfigId: string;
   startedAt: string | null;
+  errorMessage: string | null;
+  lastHeartbeatAt: string | null;
   createdByMemberId: string;
   claimedByDaemonId: string | null;
   createdAt: string;
@@ -45,4 +47,11 @@ export type TriggerRuntime = {
   agentConfigId: string;
   authPath: string | null;
   apiKey: string;
+};
+
+export type TriggerLogLevel = "INFO" | "WARN" | "ERROR";
+
+export type TriggerLogInput = {
+  level: TriggerLogLevel;
+  message: string;
 };
