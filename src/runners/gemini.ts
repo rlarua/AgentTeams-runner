@@ -50,7 +50,8 @@ export class GeminiRunner implements Runner {
       env: {
         ...process.env,
         AGENTTEAMS_API_KEY: opts.apiKey,
-        AGENTTEAMS_API_URL: opts.apiUrl
+        AGENTTEAMS_API_URL: opts.apiUrl,
+        AGENTTEAMS_AGENT_NAME: opts.agentConfigId
       }
     });
 

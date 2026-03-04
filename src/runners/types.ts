@@ -9,6 +9,7 @@ export interface RunnerOptions {
   apiKey: string;
   apiUrl: string;
   timeoutMs: number;
+  agentConfigId: string;
 }
 
 export type RunResult = {

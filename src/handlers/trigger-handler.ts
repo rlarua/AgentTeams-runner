@@ -37,7 +37,8 @@ export const createTriggerHandler = (
         authPath: runtime.authPath,
         apiKey: runtime.apiKey,
         apiUrl: config.apiUrl,
-        timeoutMs: config.timeoutMs
+        timeoutMs: config.timeoutMs,
+        agentConfigId: runtime.agentConfigId
       });
       logger.info("Trigger runner finished", {
         triggerId: trigger.id,
