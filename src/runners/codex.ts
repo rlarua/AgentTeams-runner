@@ -46,7 +46,7 @@ export class CodexRunner implements Runner {
       promptPreview: toPromptPreview(opts.prompt)
     });
 
-    const child = spawn("codex", [opts.prompt], {
+    const child = spawn("codex", ["exec", opts.prompt], {
       cwd,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
