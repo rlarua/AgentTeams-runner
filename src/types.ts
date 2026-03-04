@@ -22,7 +22,7 @@ export type DaemonInfo = {
 
 export type DaemonTrigger = {
   id: string;
-  prompt: string;
+  prompt: string | Record<string, unknown>;
   runnerType: string;
   status: string;
   agentConfigId: string;
