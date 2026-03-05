@@ -58,6 +58,7 @@ export const createTriggerHandler = (
             `- parentTriggerId: ${trigger.parentTriggerId}`,
             `- Previous history path: ${parentHistoryPath ?? "(unavailable: authPath not configured)"}`,
             "- Read the previous history file first and continue without repeating completed work.",
+            "- If the previous history has a Suggestions for User section, consider those suggestions in the context of the user's current prompt and proceed accordingly.",
           ]
         : []),
       `- History path: ${currentHistoryPath ?? "(unavailable: authPath not configured)"}`,
@@ -68,12 +69,14 @@ export const createTriggerHandler = (
       "  2) ### Changes",
       "  3) ### Verification",
       "  4) ### Next Steps",
-      "  5) ### Questions for User",
+      "  5) ### Suggestions for User",
+      "  6) ### Questions for User",
       "- Do not add a top-level title (e.g., # Runner History). Start directly with ## Summary.",
       "- In ### Summary, write 3-5 bullet points of what was done.",
       "- In ### Changes, include changed files (absolute or workspace-relative paths) and why.",
       "- In ### Verification, include executed commands and pass/fail results.",
       "- In ### Next Steps, include up to 3 concrete follow-up actions.",
+      "- In ### Suggestions for User, include concrete proposals or recommendations made during this run (with enough detail to understand each option without the original conversation). Write 'None' if no suggestions were made.",
       "- In ### Questions for User, include only blocking or decision-required questions (up to 3).",
       "- Do not truncate or abbreviate the ## Summary content in history.",
       "----"
