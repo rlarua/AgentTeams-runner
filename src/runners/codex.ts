@@ -48,7 +48,7 @@ export class CodexRunner implements Runner {
 
     const child = spawn("codex", ["exec", opts.prompt], {
       cwd,
-      shell: true,
+      shell: false,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {

@@ -50,7 +50,7 @@ export class OpenCodeRunner implements Runner {
 
     const child = spawn(this.runnerCmd, ["run", opts.prompt], {
       cwd,
-      shell: true,
+      shell: false,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {

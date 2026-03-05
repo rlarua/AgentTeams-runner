@@ -48,7 +48,7 @@ export class GeminiRunner implements Runner {
 
     const child = spawn("gemini", ["-p", opts.prompt], {
       cwd,
-      shell: true,
+      shell: false,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
