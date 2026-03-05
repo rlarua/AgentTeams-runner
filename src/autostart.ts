@@ -39,7 +39,9 @@ const buildPlistContent = (config: AutostartConfig): string => {
   const nodePath = resolveExecutablePath("node");
   const daemonPath = resolveExecutablePath("agentrunner");
 
+  const currentPath = process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin";
   const envEntries = [
+    `    <key>PATH</key>\n    <string>${currentPath}</string>`,
     `    <key>AGENTTEAMS_DAEMON_TOKEN</key>\n    <string>${config.token}</string>`,
     `    <key>AGENTTEAMS_API_URL</key>\n    <string>${config.apiUrl}</string>`,
   ].join("\n");
@@ -98,6 +100,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 ExecStart=${daemonPath} start
+Environment="PATH=${process.env.PATH ?? "/usr/local/bin:/usr/bin:/bin"}"
 Environment="AGENTTEAMS_DAEMON_TOKEN=${config.token}"
 Environment="AGENTTEAMS_API_URL=${config.apiUrl}"
 Restart=on-failure
@@ -116,6 +119,7 @@ const buildWindowsBatContent = (config: AutostartConfig): string => {
   const daemonPath = resolveExecutablePath("agentrunner");
 
   return `@echo off
+set PATH=${process.env.PATH ?? ""}
 set AGENTTEAMS_DAEMON_TOKEN=${config.token}
 set AGENTTEAMS_API_URL=${config.apiUrl}
 "${daemonPath}" start
