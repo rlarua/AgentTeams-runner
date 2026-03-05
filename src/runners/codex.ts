@@ -46,7 +46,7 @@ export class CodexRunner implements Runner {
       promptPreview: toPromptPreview(opts.prompt)
     });
 
-    const child = spawn("codex", ["exec", opts.prompt], {
+    const child = spawn("codex", ["exec", "--full-auto", opts.prompt], {
       cwd,
       shell: false,
       detached: true,
