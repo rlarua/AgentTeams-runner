@@ -48,6 +48,7 @@ export class ClaudeCodeRunner implements Runner {
 
     const child = spawn("claude", ["-p", opts.prompt], {
       cwd,
+      shell: true,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
       env: {
