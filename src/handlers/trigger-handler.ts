@@ -12,9 +12,24 @@ type TriggerHandlerOptions = {
   onAuthPathDiscovered?: (authPath: string) => void;
 };
 
-export const createTriggerHandler = (options: TriggerHandlerOptions) => {
+type ReporterLike = Pick<TriggerLogReporter, "start" | "append" | "stop">;
+type ReadHistoryFile = (path: string, encoding: BufferEncoding) => Promise<string>;
+
+type TriggerHandlerDependencies = {
+  createRunnerFactory?: typeof createRunnerFactory;
+  createLogReporter?: (client: DaemonApiClient, triggerId: string) => ReporterLike;
+  readHistoryFile?: ReadHistoryFile;
+  resolveRunnerHistoryPaths?: typeof resolveRunnerHistoryPaths;
+};
+
+export const createTriggerHandler = (options: TriggerHandlerOptions, dependencies: TriggerHandlerDependencies = {}) => {
   const { config, client, onAuthPathDiscovered } = options;
-  const createRunner = createRunnerFactory(config.runnerCmd);
+  const createRunner = (dependencies.createRunnerFactory ?? createRunnerFactory)(config.runnerCmd);
+  const createLogReporter = dependencies.createLogReporter ?? ((apiClient: DaemonApiClient, triggerId: string): ReporterLike => (
+    new TriggerLogReporter(apiClient, triggerId)
+  ));
+  const readHistoryFile: ReadHistoryFile = dependencies.readHistoryFile ?? ((path, encoding) => readFile(path, encoding));
+  const resolveHistoryPaths = dependencies.resolveRunnerHistoryPaths ?? resolveRunnerHistoryPaths;
   const maxHistoryLength = 200000;
 
   const reportHistoryToDatabase = async (
@@ -26,7 +41,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions) => {
     }
 
     try {
-      const content = await readFile(historyPath, "utf8");
+      const content = await readHistoryFile(historyPath, "utf8");
       const markdown = content.trim();
       if (markdown.length === 0) {
         return;
@@ -81,7 +96,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions) => {
   };
 
   return async (trigger: DaemonTrigger): Promise<void> => {
-    let logReporter: TriggerLogReporter | null = null;
+    let logReporter: ReporterLike | null = null;
     let currentHistoryPath: string | null = null;
 
     try {
@@ -91,7 +106,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions) => {
       });
 
       const runtime = await client.fetchTriggerRuntime(trigger.id);
-      logReporter = new TriggerLogReporter(client, trigger.id);
+      logReporter = createLogReporter(client, trigger.id);
       logReporter.start();
       logReporter.append("INFO", `Trigger started with runner ${trigger.runnerType}.`);
 
@@ -106,7 +121,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions) => {
       });
       logReporter.append("INFO", `Runtime fetched (agentConfigId=${runtime.agentConfigId}).`);
 
-      const historyPaths = resolveRunnerHistoryPaths(runtime.authPath, trigger.id, trigger.parentTriggerId);
+      const historyPaths = resolveHistoryPaths(runtime.authPath, trigger.id, trigger.parentTriggerId);
       currentHistoryPath = historyPaths.currentHistoryPath;
       const runnerPrompt = buildRunnerPrompt(trigger, historyPaths.currentHistoryPath, historyPaths.parentHistoryPath);
 
