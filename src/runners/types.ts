@@ -17,5 +17,6 @@ export interface RunnerOptions {
 export type RunResult = {
   exitCode: number;
   lastOutput?: string;
+  outputText?: string;
   errorMessage?: string;
 };

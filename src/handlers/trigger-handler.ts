@@ -35,25 +35,39 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
   const reportHistoryToDatabase = async (
     triggerId: string,
     historyPath: string | null
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     if (!historyPath) {
-      return;
+      return false;
     }
 
     try {
       const content = await readHistoryFile(historyPath, "utf8");
       const markdown = content.trim();
       if (markdown.length === 0) {
-        return;
+        return false;
       }
       await client.updateTriggerHistory(triggerId, markdown.slice(0, maxHistoryLength));
+      return true;
     } catch (error) {
       logger.warn("Failed to load or update runner history", {
         triggerId,
         historyPath,
         error: error instanceof Error ? error.message : String(error)
       });
+      return false;
     }
+  };
+
+  const buildFallbackHistory = (outputText: string): string => {
+    const output = outputText.trim().slice(0, maxHistoryLength);
+    return [
+      "### Summary",
+      "- Runner completed successfully but did not write the requested history file.",
+      "- Stored captured stdout as fallback history for this run.",
+      "",
+      "### Output",
+      output
+    ].join("\n");
   };
 
   const toPromptString = (prompt: DaemonTrigger["prompt"]): string => {
@@ -146,7 +160,11 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
         exitCode: runResult.exitCode
       });
       logReporter.append("INFO", `Runner finished with exitCode=${runResult.exitCode}.`);
-      await reportHistoryToDatabase(trigger.id, currentHistoryPath);
+      const historyReported = await reportHistoryToDatabase(trigger.id, currentHistoryPath);
+      if (!historyReported && runResult.exitCode === 0 && runResult.outputText) {
+        await client.updateTriggerHistory(trigger.id, buildFallbackHistory(runResult.outputText));
+        logReporter.append("WARN", "Runner did not write a history file. Captured stdout was stored as fallback history.");
+      }
       await logReporter.stop();
 
       const status = runResult.exitCode === 0 ? "DONE" : "FAILED";

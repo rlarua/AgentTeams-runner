@@ -153,6 +153,59 @@ test("createTriggerHandler reports runner failures and falls back to last output
   assert.deepEqual(clientCalls.at(-1)?.args, ["trigger-1", "FAILED", "last output"]);
 });
 
+test("createTriggerHandler stores stdout as fallback history when the runner omits the history file", async () => {
+  const clientCalls: Array<{ method: string; args: unknown[] }> = [];
+
+  const client = {
+    fetchTriggerRuntime: async () => runtime,
+    updateTriggerHistory: async (...args: unknown[]) => {
+      clientCalls.push({ method: "updateTriggerHistory", args });
+    },
+    updateTriggerStatus: async (...args: unknown[]) => {
+      clientCalls.push({ method: "updateTriggerStatus", args });
+    }
+  };
+
+  const handler = createTriggerHandler({
+    config: {
+      daemonToken: "daemon-token",
+      apiUrl: "https://api.example",
+      pollingIntervalMs: 5000,
+      timeoutMs: 1500,
+      runnerCmd: "opencode"
+    },
+    client: client as never
+  }, {
+    createRunnerFactory: () => () => ({
+      run: async () => ({
+        exitCode: 0,
+        outputText: "agentrunner version 0.0.11"
+      } satisfies RunResult)
+    }),
+    createLogReporter: () => ({
+      start: () => undefined,
+      append: () => undefined,
+      stop: async () => undefined
+    }),
+    readHistoryFile: async () => {
+      throw new Error("ENOENT");
+    },
+    resolveRunnerHistoryPaths: () => ({
+      currentHistoryPath: "/auth/path/.agentteams/runner/history/trigger-1.md",
+      parentHistoryPath: null
+    })
+  });
+
+  await handler({ ...trigger, parentTriggerId: null });
+
+  assert.deepEqual(clientCalls.map((entry) => entry.method), [
+    "updateTriggerHistory",
+    "updateTriggerStatus"
+  ]);
+  assert.match(String(clientCalls[0]?.args[1]), /agentrunner version 0\.0\.11/);
+  assert.deepEqual(clientCalls.at(-1)?.args, ["trigger-1", "DONE", undefined]);
+});
+
 test("createTriggerHandler marks the trigger as failed when runtime loading throws", async () => {
   const errors: Array<{ message: string; meta?: Record<string, unknown> }> = [];
   mock.method(logger, "error", (message: string, meta?: Record<string, unknown>) => {

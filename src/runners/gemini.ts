@@ -8,6 +8,7 @@ import type { Runner, RunnerOptions, RunResult } from "./types.js";
 const FORCE_KILL_AFTER_MS = 10_000;
 const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
+const OUTPUT_CAPTURE_MAX = 200_000;
 
 const toPromptPreview = (prompt: string): string => {
   if (prompt.length <= PROMPT_PREVIEW_MAX) {
@@ -63,9 +64,20 @@ export class GeminiRunner implements Runner {
     child.stderr?.pipe(logStream);
     let lastOutput = "";
     let lastErrorOutput = "";
+    let outputText = "";
+
+    const appendOutputText = (chunk: string) => {
+      if (outputText.length >= OUTPUT_CAPTURE_MAX) {
+        return;
+      }
+
+      outputText += chunk.slice(0, OUTPUT_CAPTURE_MAX - outputText.length);
+    };
 
     child.stdout?.on("data", (chunk) => {
-      const output = toOutputPreview(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk);
+      const rawOutput = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      appendOutputText(rawOutput);
+      const output = toOutputPreview(rawOutput);
       if (output.length > 0) {
         lastOutput = output;
         opts.onStdoutChunk?.(output);
@@ -155,6 +167,7 @@ export class GeminiRunner implements Runner {
         resolve({
           exitCode: 1,
           lastOutput,
+          outputText: outputText.trim() || undefined,
           errorMessage: error.message
         });
       });
@@ -173,6 +186,7 @@ export class GeminiRunner implements Runner {
           resolve({
             exitCode: 1,
             lastOutput,
+            outputText: outputText.trim() || undefined,
             errorMessage: `Runner timed out after ${opts.timeoutMs}ms`
           });
           return;
@@ -181,6 +195,7 @@ export class GeminiRunner implements Runner {
         resolve({
           exitCode: code ?? 1,
           lastOutput,
+          outputText: outputText.trim() || undefined,
           errorMessage: code === 0 ? undefined : (lastErrorOutput || lastOutput || `Runner exited with code ${code ?? 1}`)
         });
       });
