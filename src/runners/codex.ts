@@ -1,13 +1,37 @@
 import { createWriteStream } from "node:fs";
-import { mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { mkdir } from "node:fs/promises";
+import { platform } from "node:os";
 import { dirname, join } from "node:path";
+import {
+  describeExecutableResolution,
+  resolveExecutablePathWithPreference,
+  spawnExecutable
+} from "../executable.js";
 import { logger } from "../logger.js";
 import type { Runner, RunnerOptions, RunResult } from "./types.js";
 
 const FORCE_KILL_AFTER_MS = 10_000;
 const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
+const OUTPUT_CAPTURE_MAX = 200_000;
+
+const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string): string => {
+  const scriptContent = [
+    "$ErrorActionPreference = 'Stop'",
+    "$utf8NoBom = [System.Text.UTF8Encoding]::new($false)",
+    "[Console]::InputEncoding = $utf8NoBom",
+    "[Console]::OutputEncoding = $utf8NoBom",
+    "$OutputEncoding = $utf8NoBom",
+    "chcp 65001 > $null",
+    `$promptText = @'`,
+    `${prompt.replaceAll("'@", "'@")}`,
+    `'@`,
+    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-a' 'never' 'exec' '-s' 'workspace-write' '-c' 'sandbox_workspace_write.network_access=true' $promptText`
+  ].join("\r\n");
+
+  return Buffer.from(scriptContent, "utf16le").toString("base64");
+};
 
 const toPromptPreview = (prompt: string): string => {
   if (prompt.length <= PROMPT_PREVIEW_MAX) {
@@ -39,34 +63,81 @@ export class CodexRunner implements Runner {
     const cwd = opts.authPath;
     const logPath = join(cwd, ".agentteams", "runner", "log", `${opts.triggerId}.log`);
     await mkdir(dirname(logPath), { recursive: true });
+    const isWindows = platform() === "win32";
+    const resolvedExecutablePath = isWindows
+      ? resolveExecutablePathWithPreference("codex", ["codex.cmd", "codex"])
+      : resolveExecutablePathWithPreference("codex", ["codex"]);
+    const windowsEncodedCommand = isWindows
+      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt)
+      : null;
+    const executableInfo = describeExecutableResolution("codex", {
+      platform: () => (isWindows ? "win32" : platform())
+    });
 
     logger.info("Runner prompt", {
       triggerId: opts.triggerId,
       promptLength: opts.prompt.length,
-      promptPreview: toPromptPreview(opts.prompt)
+      promptPreview: toPromptPreview(opts.prompt),
+      requestedCommand: executableInfo.requestedCommand,
+      resolvedExecutablePath,
+      platform: executableInfo.platform,
+      shell: executableInfo.shell,
+      detached: isWindows ? false : true,
+      windowsWrapper: isWindows ? "powershell.exe -EncodedCommand" : null
     });
 
-    const child = spawn("codex", ["exec", "-a", "never", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", opts.prompt], {
-      cwd,
-      shell: false,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        AGENTTEAMS_API_KEY: opts.apiKey,
-        AGENTTEAMS_API_URL: opts.apiUrl,
-        AGENTTEAMS_AGENT_NAME: opts.agentConfigId
-      }
-    });
+    const child = isWindows
+      ? spawn("powershell.exe", [
+          "-NoLogo",
+          "-NonInteractive",
+          "-ExecutionPolicy",
+          "Bypass",
+          "-EncodedCommand",
+          windowsEncodedCommand ?? ""
+        ], {
+          cwd,
+          detached: false,
+          shell: false,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            AGENTTEAMS_API_KEY: opts.apiKey,
+            AGENTTEAMS_API_URL: opts.apiUrl,
+            AGENTTEAMS_AGENT_NAME: opts.agentConfigId
+          }
+        })
+      : spawnExecutable("codex", ["-a", "never", "exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", opts.prompt], {
+          cwd,
+          detached: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            AGENTTEAMS_API_KEY: opts.apiKey,
+            AGENTTEAMS_API_URL: opts.apiUrl,
+            AGENTTEAMS_AGENT_NAME: opts.agentConfigId
+          }
+        });
 
     const logStream = createWriteStream(logPath, { flags: "a" });
     child.stdout?.pipe(logStream);
     child.stderr?.pipe(logStream);
     let lastOutput = "";
     let lastErrorOutput = "";
+    let outputText = "";
+
+    const appendOutputText = (chunk: string) => {
+      if (outputText.length >= OUTPUT_CAPTURE_MAX) {
+        return;
+      }
+
+      outputText += chunk.slice(0, OUTPUT_CAPTURE_MAX - outputText.length);
+    };
 
     child.stdout?.on("data", (chunk) => {
-      const output = toOutputPreview(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk);
+      const rawOutput = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+      appendOutputText(rawOutput);
+      const output = toOutputPreview(rawOutput);
       if (output.length > 0) {
         lastOutput = output;
         opts.onStdoutChunk?.(output);
@@ -156,6 +227,7 @@ export class CodexRunner implements Runner {
         resolve({
           exitCode: 1,
           lastOutput,
+          outputText: outputText.trim() || undefined,
           errorMessage: error.message
         });
       });
@@ -174,6 +246,7 @@ export class CodexRunner implements Runner {
           resolve({
             exitCode: 1,
             lastOutput,
+            outputText: outputText.trim() || undefined,
             errorMessage: `Runner timed out after ${opts.timeoutMs}ms`
           });
           return;
@@ -182,6 +255,7 @@ export class CodexRunner implements Runner {
         resolve({
           exitCode: code ?? 1,
           lastOutput,
+          outputText: outputText.trim() || undefined,
           errorMessage: code === 0 ? undefined : (lastErrorOutput || lastOutput || `Runner exited with code ${code ?? 1}`)
         });
       });
