@@ -1,8 +1,13 @@
 import { createWriteStream } from "node:fs";
+import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
-import { describeExecutableResolution, spawnExecutable } from "../executable.js";
+import {
+  describeExecutableResolution,
+  resolveExecutablePathWithPreference,
+  spawnExecutable
+} from "../executable.js";
 import { logger } from "../logger.js";
 import type { Runner, RunnerOptions, RunResult } from "./types.js";
 
@@ -43,31 +48,51 @@ export class OpenCodeRunner implements Runner {
     const cwd = opts.authPath;
     const logPath = join(cwd, ".agentteams", "runner", "log", `${opts.triggerId}.log`);
     await mkdir(dirname(logPath), { recursive: true });
-    const executableInfo = describeExecutableResolution(this.runnerCmd);
+    const isWindows = platform() === "win32";
+    const resolvedExecutablePath = isWindows
+      ? resolveExecutablePathWithPreference(this.runnerCmd, [`${this.runnerCmd}.cmd`, this.runnerCmd])
+      : resolveExecutablePathWithPreference(this.runnerCmd, [this.runnerCmd]);
+    const executableInfo = describeExecutableResolution(this.runnerCmd, {
+      platform: () => (isWindows ? "win32" : platform())
+    });
 
     logger.info("Runner prompt", {
       triggerId: opts.triggerId,
       promptLength: opts.prompt.length,
       promptPreview: toPromptPreview(opts.prompt),
       requestedCommand: executableInfo.requestedCommand,
-      resolvedExecutablePath: executableInfo.resolvedExecutablePath,
+      resolvedExecutablePath,
       platform: executableInfo.platform,
       shell: executableInfo.shell,
-      detached: true,
-      windowsWrapper: platform() === "win32" ? "powershell.exe" : null
+      detached: isWindows ? false : true,
+      windowsWrapper: null
     });
 
-    const child = spawnExecutable(this.runnerCmd, ["run", opts.prompt], {
-      cwd,
-      detached: true,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: {
-        ...process.env,
-        AGENTTEAMS_API_KEY: opts.apiKey,
-        AGENTTEAMS_API_URL: opts.apiUrl,
-        AGENTTEAMS_AGENT_NAME: opts.agentConfigId
-      }
-    });
+    const child = isWindows
+      ? spawn(resolvedExecutablePath, ["run", opts.prompt], {
+          cwd,
+          detached: false,
+          shell: false,
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            AGENTTEAMS_API_KEY: opts.apiKey,
+            AGENTTEAMS_API_URL: opts.apiUrl,
+            AGENTTEAMS_AGENT_NAME: opts.agentConfigId
+          }
+        })
+      : spawnExecutable(this.runnerCmd, ["run", opts.prompt], {
+          cwd,
+          detached: true,
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            AGENTTEAMS_API_KEY: opts.apiKey,
+            AGENTTEAMS_API_URL: opts.apiUrl,
+            AGENTTEAMS_AGENT_NAME: opts.agentConfigId
+          }
+        });
 
     const logStream = createWriteStream(logPath, { flags: "a" });
     child.stdout?.pipe(logStream);

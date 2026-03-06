@@ -104,6 +104,21 @@ export const resolveExecutablePath = (name: string, deps: ExecutableDeps = {}): 
   );
 };
 
+export const resolveExecutablePathWithPreference = (
+  name: string,
+  preferredNames: string[],
+  deps: ExecutableDeps = {}
+): string => {
+  for (const preferredName of preferredNames) {
+    const resolvedPath = resolveFromPathLookup(preferredName, deps) ?? resolveFromNpmGlobalBin(preferredName, deps);
+    if (resolvedPath) {
+      return resolvedPath;
+    }
+  }
+
+  return resolveExecutablePath(name, deps);
+};
+
 export const describeExecutableResolution = (
   name: string,
   deps: ExecutableDeps = {}

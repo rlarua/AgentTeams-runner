@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildPowerShellCommand, resolveExecutablePath } from "./executable.js";
+import {
+  buildPowerShellCommand,
+  resolveExecutablePath,
+  resolveExecutablePathWithPreference
+} from "./executable.js";
 
 test("resolveExecutablePath falls back to npm global bin on Windows", () => {
   const resolved = resolveExecutablePath("opencode", {
@@ -38,6 +42,25 @@ test("resolveExecutablePath prefers PATH lookup results", () => {
   });
 
   assert.equal(resolved, "/usr/local/bin/codex");
+});
+
+test("resolveExecutablePathWithPreference prefers opencode.cmd on Windows", () => {
+  const resolved = resolveExecutablePathWithPreference("opencode", ["opencode.cmd", "opencode"], {
+    platform: () => "win32",
+    execFileSync: ((command: string, args: string[]) => {
+      if (command === "where" && args[0] === "opencode.cmd") {
+        return "C:\\Users\\rlaru\\AppData\\Roaming\\npm\\opencode.cmd\n";
+      }
+
+      if (command === "where" && args[0] === "opencode") {
+        return "C:\\Users\\rlaru\\AppData\\Roaming\\npm\\opencode\n";
+      }
+
+      throw new Error(`unexpected command: ${command} ${args.join(" ")}`);
+    }) as typeof import("node:child_process").execFileSync
+  });
+
+  assert.equal(resolved, "C:\\Users\\rlaru\\AppData\\Roaming\\npm\\opencode.cmd");
 });
 
 test("buildPowerShellCommand preserves multiline arguments and escapes single quotes", () => {
