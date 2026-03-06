@@ -7,8 +7,32 @@ type TriggerHandlerFactory = (onAuthPathDiscovered: (authPath: string) => void) 
 
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-export const startPolling = async (config: RuntimeConfig, createHandler: TriggerHandlerFactory): Promise<void> => {
-  const client = new DaemonApiClient(config.apiUrl, config.daemonToken);
+type PollingDependencies = {
+  createClient?: (config: RuntimeConfig) => Pick<DaemonApiClient, "fetchPendingTrigger" | "claimTrigger">;
+  runCleanup?: (authPath: string) => Promise<void>;
+  setInterval?: typeof global.setInterval;
+  clearInterval?: typeof global.clearInterval;
+  processOn?: (event: NodeJS.Signals, listener: () => void) => void;
+  processExit?: (code: number) => never;
+  now?: () => number;
+  keepAlive?: () => Promise<void>;
+};
+
+export const startPolling = async (
+  config: RuntimeConfig,
+  createHandler: TriggerHandlerFactory,
+  dependencies: PollingDependencies = {}
+): Promise<void> => {
+  const client = dependencies.createClient?.(config) ?? new DaemonApiClient(config.apiUrl, config.daemonToken);
+  const cleanupRunner = dependencies.runCleanup ?? runCleanup;
+  const now = dependencies.now ?? Date.now;
+  const registerInterval = dependencies.setInterval ?? global.setInterval;
+  const unregisterInterval = dependencies.clearInterval ?? global.clearInterval;
+  const registerSignal = dependencies.processOn ?? ((event, listener) => process.on(event, listener));
+  const exitProcess = dependencies.processExit ?? ((code) => process.exit(code));
+  const keepAlive = dependencies.keepAlive ?? (() => new Promise<void>(() => {
+    // Keep process alive until shutdown signal.
+  }));
   let isPolling = false;
 
   const knownAuthPaths = new Set<string>();
@@ -21,14 +45,14 @@ export const startPolling = async (config: RuntimeConfig, createHandler: Trigger
   const onTrigger = createHandler(onAuthPathDiscovered);
 
   const maybeRunCleanup = () => {
-    const now = Date.now();
-    if (now - lastCleanupAt < CLEANUP_INTERVAL_MS) {
+    const currentTime = now();
+    if (currentTime - lastCleanupAt < CLEANUP_INTERVAL_MS) {
       return;
     }
-    lastCleanupAt = now;
+    lastCleanupAt = currentTime;
 
     for (const authPath of knownAuthPaths) {
-      void runCleanup(authPath).catch((error) => {
+      void cleanupRunner(authPath).catch((error) => {
         logger.warn("Scheduled cleanup failed", {
           authPath,
           error: error instanceof Error ? error.message : String(error)
@@ -77,7 +101,7 @@ export const startPolling = async (config: RuntimeConfig, createHandler: Trigger
     }
   };
 
-  const interval = setInterval(() => {
+  const interval = registerInterval(() => {
     void pollOnce();
   }, config.pollingIntervalMs);
 
@@ -91,15 +115,13 @@ export const startPolling = async (config: RuntimeConfig, createHandler: Trigger
   await pollOnce();
 
   const shutdown = () => {
-    clearInterval(interval);
+    unregisterInterval(interval);
     logger.info("Daemon stopped");
-    process.exit(0);
+    exitProcess(0);
   };
 
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+  registerSignal("SIGINT", shutdown);
+  registerSignal("SIGTERM", shutdown);
 
-  await new Promise<void>(() => {
-    // Keep process alive until shutdown signal.
-  });
+  await keepAlive();
 };
