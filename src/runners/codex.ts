@@ -27,7 +27,7 @@ const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: stri
     `$promptText = @'`,
     `${prompt.replaceAll("'@", "'@")}`,
     `'@`,
-    `& '${resolvedExecutablePath.replaceAll("'", "''")}' 'exec' '-a' 'never' '-s' 'workspace-write' '-c' 'sandbox_workspace_write.network_access=true' $promptText`
+    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-a' 'never' 'exec' '-s' 'workspace-write' '-c' 'sandbox_workspace_write.network_access=true' $promptText`
   ].join("\r\n");
 
   return Buffer.from(scriptContent, "utf16le").toString("base64");
@@ -107,7 +107,7 @@ export class CodexRunner implements Runner {
             AGENTTEAMS_AGENT_NAME: opts.agentConfigId
           }
         })
-      : spawnExecutable("codex", ["exec", "-a", "never", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", opts.prompt], {
+      : spawnExecutable("codex", ["-a", "never", "exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", opts.prompt], {
           cwd,
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
