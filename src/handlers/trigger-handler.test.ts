@@ -170,6 +170,54 @@ test("createTriggerHandler restores parent history from server-side coaction con
   }]);
 });
 
+test("createTriggerHandler overwrites existing parent history with server cumulative context", async () => {
+  const writtenFiles: Array<{ path: string; content: string }> = [];
+
+  const client = {
+    fetchTriggerRuntime: async () => ({
+      ...runtime,
+      parentHistoryMarkdown: "### Summary\n- cumulative from server\n"
+    }),
+    updateTriggerHistory: async () => undefined,
+    updateTriggerStatus: async () => undefined
+  };
+
+  const handler = createTriggerHandler({
+    config: {
+      daemonToken: "daemon-token",
+      apiUrl: "https://api.example",
+      pollingIntervalMs: 5000,
+      timeoutMs: 1500,
+      runnerCmd: "opencode"
+    },
+    client: client as never
+  }, {
+    createRunnerFactory: () => () => ({
+      run: async () => ({ exitCode: 0 } satisfies RunResult)
+    }),
+    createLogReporter: () => ({
+      start: () => undefined,
+      append: () => undefined,
+      stop: async () => undefined
+    }),
+    readHistoryFile: async () => "### Summary\n- stale local parent history\n",
+    writeHistoryFile: async (path, content) => {
+      writtenFiles.push({ path, content });
+    },
+    resolveRunnerHistoryPaths: () => ({
+      currentHistoryPath: "/auth/path/.agentteams/runner/history/trigger-1.md",
+      parentHistoryPath: "/auth/path/.agentteams/runner/history/parent-1.md"
+    })
+  });
+
+  await handler(trigger);
+
+  assert.deepEqual(writtenFiles, [{
+    path: "/auth/path/.agentteams/runner/history/parent-1.md",
+    content: "### Summary\n- cumulative from server"
+  }]);
+});
+
 test("createTriggerHandler reports runner failures and falls back to last output", async () => {
   const clientCalls: Array<{ method: string; args: unknown[] }> = [];
 

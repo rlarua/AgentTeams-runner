@@ -87,15 +87,6 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       return;
     }
 
-    try {
-      const existingContent = await readHistoryFile(parentHistoryPath, "utf8");
-      if (existingContent.trim().length > 0) {
-        return;
-      }
-    } catch {
-      // If the file cannot be read, restore it from server-side CoAction content.
-    }
-
     await writeHistoryFile(parentHistoryPath, normalizedMarkdown.slice(0, maxHistoryLength));
   };
 
