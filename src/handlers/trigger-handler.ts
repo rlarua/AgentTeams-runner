@@ -178,6 +178,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
         apiUrl: config.apiUrl,
         timeoutMs: config.timeoutMs,
         agentConfigId: runtime.agentConfigId,
+        model: trigger.model,
         onStdoutChunk: (chunk) => {
           logReporter?.append("INFO", chunk);
         },

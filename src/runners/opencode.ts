@@ -16,7 +16,8 @@ const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
 const OUTPUT_CAPTURE_MAX = 200_000;
 
-const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string): string => {
+const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string, model?: string | null): string => {
+  const modelSegment = model ? ` '--model' '${model.replaceAll("'", "''")}'` : "";
   const scriptContent = [
     "$ErrorActionPreference = 'Stop'",
     "$utf8NoBom = [System.Text.UTF8Encoding]::new($false)",
@@ -27,7 +28,7 @@ const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: stri
     `$promptText = @'`,
     `${prompt.replaceAll("'@", "'@")}`,
     `'@`,
-    `& '${resolvedExecutablePath.replaceAll("'", "''")}' 'run' $promptText`
+    `& '${resolvedExecutablePath.replaceAll("'", "''")}' 'run'${modelSegment} $promptText`
   ].join("\r\n");
 
   return Buffer.from(scriptContent, "utf16le").toString("base64");
@@ -70,7 +71,7 @@ export class OpenCodeRunner implements Runner {
       ? resolveExecutablePathWithPreference(this.runnerCmd, [`${this.runnerCmd}.cmd`, this.runnerCmd])
       : resolveExecutablePathWithPreference(this.runnerCmd, [this.runnerCmd]);
     const windowsEncodedCommand = isWindows
-      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt)
+      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt, opts.model)
       : null;
     const executableInfo = describeExecutableResolution(this.runnerCmd, {
       platform: () => (isWindows ? "win32" : platform())
@@ -88,6 +89,7 @@ export class OpenCodeRunner implements Runner {
       windowsWrapper: isWindows ? "powershell.exe -EncodedCommand" : null
     });
 
+    const modelArgs = opts.model ? ["--model", opts.model] : [];
     const child = isWindows
       ? spawn("powershell.exe", [
           "-NoLogo",
@@ -109,7 +111,7 @@ export class OpenCodeRunner implements Runner {
             AGENTTEAMS_AGENT_NAME: opts.agentConfigId
           }
         })
-      : spawnExecutable(this.runnerCmd, ["run", opts.prompt], {
+      : spawnExecutable(this.runnerCmd, ["run", ...modelArgs, opts.prompt], {
           cwd,
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],

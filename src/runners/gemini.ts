@@ -16,7 +16,8 @@ const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
 const OUTPUT_CAPTURE_MAX = 200_000;
 
-const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string): string => {
+const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string, model?: string | null): string => {
+  const modelSegment = model ? ` '--model' '${model.replaceAll("'", "''")}'` : "";
   const scriptContent = [
     "$ErrorActionPreference = 'Stop'",
     "$utf8NoBom = [System.Text.UTF8Encoding]::new($false)",
@@ -27,7 +28,7 @@ const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: stri
     `$promptText = @'`,
     `${prompt.replaceAll("'@", "'@")}`,
     `'@`,
-    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-p' $promptText`
+    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-p'${modelSegment} $promptText`
   ].join("\r\n");
 
   return Buffer.from(scriptContent, "utf16le").toString("base64");
@@ -68,8 +69,9 @@ export class GeminiRunner implements Runner {
       ? resolveExecutablePathWithPreference("gemini", ["gemini.cmd", "gemini"])
       : resolveExecutablePathWithPreference("gemini", ["gemini"]);
     const windowsEncodedCommand = isWindows
-      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt)
+      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt, opts.model)
       : null;
+    const modelArgs = opts.model ? ["--model", opts.model] : [];
     const executableInfo = describeExecutableResolution("gemini", {
       platform: () => (isWindows ? "win32" : platform())
     });
@@ -107,7 +109,7 @@ export class GeminiRunner implements Runner {
             AGENTTEAMS_AGENT_NAME: opts.agentConfigId
           }
         })
-      : spawnExecutable("gemini", ["-p", opts.prompt], {
+      : spawnExecutable("gemini", ["-p", ...modelArgs, opts.prompt], {
           cwd,
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],

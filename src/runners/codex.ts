@@ -16,7 +16,8 @@ const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
 const OUTPUT_CAPTURE_MAX = 200_000;
 
-const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string): string => {
+const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string, model?: string | null): string => {
+  const modelSegment = model ? `'--model' '${model.replaceAll("'", "''")}' ` : "";
   const scriptContent = [
     "$ErrorActionPreference = 'Stop'",
     "$utf8NoBom = [System.Text.UTF8Encoding]::new($false)",
@@ -27,7 +28,7 @@ const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: stri
     `$promptText = @'`,
     `${prompt.replaceAll("'@", "'@")}`,
     `'@`,
-    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-a' 'never' 'exec' '-s' 'workspace-write' '-c' 'sandbox_workspace_write.network_access=true' $promptText`
+    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-a' 'never' 'exec' '-s' 'workspace-write' '-c' 'sandbox_workspace_write.network_access=true' ${modelSegment}$promptText`
   ].join("\r\n");
 
   return Buffer.from(scriptContent, "utf16le").toString("base64");
@@ -68,8 +69,9 @@ export class CodexRunner implements Runner {
       ? resolveExecutablePathWithPreference("codex", ["codex.cmd", "codex"])
       : resolveExecutablePathWithPreference("codex", ["codex"]);
     const windowsEncodedCommand = isWindows
-      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt)
+      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt, opts.model)
       : null;
+    const modelArgs = opts.model ? ["--model", opts.model] : [];
     const executableInfo = describeExecutableResolution("codex", {
       platform: () => (isWindows ? "win32" : platform())
     });
@@ -107,7 +109,7 @@ export class CodexRunner implements Runner {
             AGENTTEAMS_AGENT_NAME: opts.agentConfigId
           }
         })
-      : spawnExecutable("codex", ["-a", "never", "exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", opts.prompt], {
+      : spawnExecutable("codex", ["-a", "never", "exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", ...modelArgs, opts.prompt], {
           cwd,
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],

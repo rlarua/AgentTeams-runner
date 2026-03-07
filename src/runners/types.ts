@@ -10,6 +10,7 @@ export interface RunnerOptions {
   apiUrl: string;
   timeoutMs: number;
   agentConfigId: string;
+  model?: string | null;
   onStdoutChunk?: (chunk: string) => void;
   onStderrChunk?: (chunk: string) => void;
 }
