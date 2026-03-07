@@ -43,7 +43,7 @@ export type DaemonTrigger = {
   updatedAt: string;
 };
 
-export type TriggerFinalStatus = "DONE" | "FAILED" | "REJECTED";
+export type TriggerFinalStatus = "DONE" | "CANCELLED" | "FAILED" | "REJECTED";
 
 export type ClaimResult = {
   ok: boolean;

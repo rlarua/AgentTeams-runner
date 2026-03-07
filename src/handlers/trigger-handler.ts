@@ -23,6 +23,9 @@ type TriggerHandlerDependencies = {
   readHistoryFile?: ReadHistoryFile;
   writeHistoryFile?: WriteHistoryFile;
   resolveRunnerHistoryPaths?: typeof resolveRunnerHistoryPaths;
+  setIntervalFn?: typeof global.setInterval;
+  clearIntervalFn?: typeof global.clearInterval;
+  cancelPollIntervalMs?: number;
 };
 
 export const createTriggerHandler = (options: TriggerHandlerOptions, dependencies: TriggerHandlerDependencies = {}) => {
@@ -38,6 +41,9 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
   });
   const resolveHistoryPaths = dependencies.resolveRunnerHistoryPaths ?? resolveRunnerHistoryPaths;
   const maxHistoryLength = 200000;
+  const setIntervalFn = dependencies.setIntervalFn ?? global.setInterval;
+  const clearIntervalFn = dependencies.clearIntervalFn ?? global.clearInterval;
+  const cancelPollIntervalMs = dependencies.cancelPollIntervalMs ?? 2000;
 
   const reportHistoryToDatabase = async (
     triggerId: string,
@@ -132,6 +138,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
   return async (trigger: DaemonTrigger): Promise<void> => {
     let logReporter: ReporterLike | null = null;
     let currentHistoryPath: string | null = null;
+    let cancelInterval: NodeJS.Timeout | null = null;
 
     try {
       logger.info("Trigger execution started", {
@@ -161,6 +168,35 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       const runnerPrompt = buildRunnerPrompt(trigger, historyPaths.currentHistoryPath, historyPaths.parentHistoryPath);
 
       const runner = createRunner(trigger.runnerType);
+      const cancelController = new AbortController();
+      let cancelRequested = false;
+      let cancelCheckInFlight = false;
+      const checkCancelRequested = async () => {
+        if (cancelRequested || cancelCheckInFlight) {
+          return;
+        }
+
+        cancelCheckInFlight = true;
+        try {
+          const requested = await client.isTriggerCancelRequested(trigger.id);
+          if (requested) {
+            cancelRequested = true;
+            logReporter.append("WARN", "Cancellation requested by user. Stopping runner.");
+            cancelController.abort();
+          }
+        } catch (error) {
+          logger.warn("Failed to fetch trigger cancel status", {
+            triggerId: trigger.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        } finally {
+          cancelCheckInFlight = false;
+        }
+      };
+      await checkCancelRequested();
+      cancelInterval = setIntervalFn(() => {
+        void checkCancelRequested();
+      }, cancelPollIntervalMs);
       const runResult = await runner.run({
         triggerId: trigger.id,
         prompt: runnerPrompt,
@@ -170,6 +206,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
         timeoutMs: config.timeoutMs,
         agentConfigId: runtime.agentConfigId,
         model: trigger.model,
+        signal: cancelController.signal,
         onStdoutChunk: (chunk) => {
           logReporter?.append("INFO", chunk);
         },
@@ -177,6 +214,8 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
           logReporter?.append("WARN", chunk);
         }
       });
+      clearIntervalFn(cancelInterval);
+      cancelInterval = null;
       logger.info("Trigger runner finished", {
         triggerId: trigger.id,
         exitCode: runResult.exitCode
@@ -193,9 +232,13 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       }
       await logReporter.stop();
 
-      const status = runResult.exitCode === 0 ? "DONE" : "FAILED";
+      const status = runResult.cancelled
+        ? "CANCELLED"
+        : runResult.exitCode === 0 ? "DONE" : "FAILED";
       const errorMessage = status === "FAILED"
         ? (runResult.errorMessage || runResult.lastOutput || `Runner exited with code ${runResult.exitCode}`)
+        : status === "CANCELLED"
+          ? (runResult.errorMessage || "Runner cancelled by user")
         : undefined;
       await client.updateTriggerStatus(
         trigger.id,
@@ -207,6 +250,10 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
         status
       });
     } catch (error) {
+      if (cancelInterval) {
+        clearIntervalFn(cancelInterval);
+        cancelInterval = null;
+      }
       logger.error("Trigger handling failed", {
         triggerId: trigger.id,
         error: error instanceof Error ? error.message : String(error)
