@@ -16,7 +16,8 @@ const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
 const OUTPUT_CAPTURE_MAX = 200_000;
 
-const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string): string => {
+const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string, model?: string | null): string => {
+  const modelSegment = model ? ` '--model' '${model.replaceAll("'", "''")}'` : "";
   const scriptContent = [
     "$ErrorActionPreference = 'Stop'",
     "$utf8NoBom = [System.Text.UTF8Encoding]::new($false)",
@@ -27,7 +28,7 @@ const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: stri
     `$promptText = @'`,
     `${prompt.replaceAll("'@", "'@")}`,
     `'@`,
-    `& '${resolvedExecutablePath.replaceAll("'", "''")}' 'run' $promptText`
+    `& '${resolvedExecutablePath.replaceAll("'", "''")}' 'run'${modelSegment} $promptText`
   ].join("\r\n");
 
   return Buffer.from(scriptContent, "utf16le").toString("base64");
@@ -50,6 +51,44 @@ const toOutputPreview = (chunk: unknown): string => {
   return `${text.slice(0, OUTPUT_PREVIEW_MAX)}...`;
 };
 
+const terminateRunnerChild = (
+  child: ReturnType<typeof spawn>,
+  isWindows: boolean,
+  triggerId: string,
+  reason: "timeout" | "cancel"
+) => {
+  if (!child.pid) {
+    return;
+  }
+
+  logger.warn(reason === "cancel" ? "Runner cancellation requested; sending SIGTERM" : "Runner timeout reached; sending SIGTERM", {
+    triggerId,
+    pid: child.pid
+  });
+
+  try {
+    if (isWindows) {
+      child.kill("SIGTERM");
+    } else {
+      process.kill(-child.pid, "SIGTERM");
+    }
+  } catch {
+    // ignore
+  }
+
+  setTimeout(() => {
+    try {
+      if (isWindows) {
+        child.kill("SIGKILL");
+      } else if (child.pid) {
+        process.kill(-child.pid, "SIGKILL");
+      }
+    } catch {
+      // ignore
+    }
+  }, FORCE_KILL_AFTER_MS);
+};
+
 export class OpenCodeRunner implements Runner {
   constructor(private readonly runnerCmd: string = "opencode") {}
 
@@ -70,7 +109,7 @@ export class OpenCodeRunner implements Runner {
       ? resolveExecutablePathWithPreference(this.runnerCmd, [`${this.runnerCmd}.cmd`, this.runnerCmd])
       : resolveExecutablePathWithPreference(this.runnerCmd, [this.runnerCmd]);
     const windowsEncodedCommand = isWindows
-      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt)
+      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt, opts.model)
       : null;
     const executableInfo = describeExecutableResolution(this.runnerCmd, {
       platform: () => (isWindows ? "win32" : platform())
@@ -88,6 +127,7 @@ export class OpenCodeRunner implements Runner {
       windowsWrapper: isWindows ? "powershell.exe -EncodedCommand" : null
     });
 
+    const modelArgs = opts.model ? ["--model", opts.model] : [];
     const child = isWindows
       ? spawn("powershell.exe", [
           "-NoLogo",
@@ -109,7 +149,7 @@ export class OpenCodeRunner implements Runner {
             AGENTTEAMS_AGENT_NAME: opts.agentConfigId
           }
         })
-      : spawnExecutable(this.runnerCmd, ["run", opts.prompt], {
+      : spawnExecutable(this.runnerCmd, ["run", ...modelArgs, opts.prompt], {
           cwd,
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
@@ -174,6 +214,7 @@ export class OpenCodeRunner implements Runner {
     return await new Promise<RunResult>((resolve) => {
       let finished = false;
       let timedOut = false;
+      let cancelled = false;
 
       const cleanup = () => {
         if (finished) {
@@ -182,42 +223,24 @@ export class OpenCodeRunner implements Runner {
 
         finished = true;
         logStream.end();
+        if (opts.signal) {
+          opts.signal.removeEventListener("abort", handleAbort);
+        }
       };
-
+      const handleAbort = () => {
+        cancelled = true;
+        terminateRunnerChild(child, isWindows, opts.triggerId, "cancel");
+      };
       const timeoutId = setTimeout(() => {
         timedOut = true;
-
-        if (!child.pid) {
-          return;
-        }
-
-        logger.warn("Runner timeout reached; sending SIGTERM", {
-          triggerId: opts.triggerId,
-          pid: child.pid,
-          timeoutMs: opts.timeoutMs
-        });
-
-        try {
-          process.kill(-child.pid, "SIGTERM");
-        } catch {
-          // ignore
-        }
-
-        setTimeout(() => {
-          if (!finished && child.pid) {
-            logger.warn("Runner still alive after SIGTERM; sending SIGKILL", {
-              triggerId: opts.triggerId,
-              pid: child.pid
-            });
-
-            try {
-              process.kill(-child.pid, "SIGKILL");
-            } catch {
-              // ignore
-            }
-          }
-        }, FORCE_KILL_AFTER_MS);
+        terminateRunnerChild(child, isWindows, opts.triggerId, "timeout");
       }, opts.timeoutMs);
+
+      if (opts.signal?.aborted) {
+        handleAbort();
+      } else if (opts.signal) {
+        opts.signal.addEventListener("abort", handleAbort, { once: true });
+      }
 
       child.on("error", (error) => {
         clearTimeout(timeoutId);
@@ -250,6 +273,17 @@ export class OpenCodeRunner implements Runner {
             lastOutput,
             outputText: outputText.trim() || undefined,
             errorMessage: `Runner timed out after ${opts.timeoutMs}ms`
+          });
+          return;
+        }
+
+        if (cancelled) {
+          resolve({
+            exitCode: 1,
+            cancelled: true,
+            lastOutput,
+            outputText: outputText.trim() || undefined,
+            errorMessage: "Runner cancelled by user"
           });
           return;
         }

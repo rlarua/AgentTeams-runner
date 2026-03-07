@@ -16,7 +16,8 @@ const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
 const OUTPUT_CAPTURE_MAX = 200_000;
 
-const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string): string => {
+const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string, model?: string | null): string => {
+  const modelSegment = model ? `'--model' '${model.replaceAll("'", "''")}' ` : "";
   const scriptContent = [
     "$ErrorActionPreference = 'Stop'",
     "$utf8NoBom = [System.Text.UTF8Encoding]::new($false)",
@@ -27,7 +28,7 @@ const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: stri
     `$promptText = @'`,
     `${prompt.replaceAll("'@", "'@")}`,
     `'@`,
-    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-a' 'never' 'exec' '-s' 'workspace-write' '-c' 'sandbox_workspace_write.network_access=true' $promptText`
+    `& '${resolvedExecutablePath.replaceAll("'", "''")}' '-a' 'never' 'exec' '-s' 'workspace-write' '-c' 'sandbox_workspace_write.network_access=true' ${modelSegment}$promptText`
   ].join("\r\n");
 
   return Buffer.from(scriptContent, "utf16le").toString("base64");
@@ -50,6 +51,44 @@ const toOutputPreview = (chunk: unknown): string => {
   return `${text.slice(0, OUTPUT_PREVIEW_MAX)}...`;
 };
 
+const terminateRunnerChild = (
+  child: ReturnType<typeof spawn>,
+  isWindows: boolean,
+  triggerId: string,
+  reason: "timeout" | "cancel"
+) => {
+  if (!child.pid) {
+    return;
+  }
+
+  logger.warn(reason === "cancel" ? "Runner cancellation requested; sending SIGTERM" : "Runner timeout reached; sending SIGTERM", {
+    triggerId,
+    pid: child.pid
+  });
+
+  try {
+    if (isWindows) {
+      child.kill("SIGTERM");
+    } else {
+      process.kill(-child.pid, "SIGTERM");
+    }
+  } catch {
+    // ignore
+  }
+
+  setTimeout(() => {
+    try {
+      if (isWindows) {
+        child.kill("SIGKILL");
+      } else if (child.pid) {
+        process.kill(-child.pid, "SIGKILL");
+      }
+    } catch {
+      // ignore
+    }
+  }, FORCE_KILL_AFTER_MS);
+};
+
 export class CodexRunner implements Runner {
   async run(opts: RunnerOptions): Promise<RunResult> {
     if (!opts.authPath || opts.authPath.trim().length === 0) {
@@ -68,8 +107,9 @@ export class CodexRunner implements Runner {
       ? resolveExecutablePathWithPreference("codex", ["codex.cmd", "codex"])
       : resolveExecutablePathWithPreference("codex", ["codex"]);
     const windowsEncodedCommand = isWindows
-      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt)
+      ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt, opts.model)
       : null;
+    const modelArgs = opts.model ? ["--model", opts.model] : [];
     const executableInfo = describeExecutableResolution("codex", {
       platform: () => (isWindows ? "win32" : platform())
     });
@@ -107,7 +147,7 @@ export class CodexRunner implements Runner {
             AGENTTEAMS_AGENT_NAME: opts.agentConfigId
           }
         })
-      : spawnExecutable("codex", ["-a", "never", "exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", opts.prompt], {
+      : spawnExecutable("codex", ["-a", "never", "exec", "-s", "workspace-write", "-c", "sandbox_workspace_write.network_access=true", ...modelArgs, opts.prompt], {
           cwd,
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
@@ -172,6 +212,7 @@ export class CodexRunner implements Runner {
     return await new Promise<RunResult>((resolve) => {
       let finished = false;
       let timedOut = false;
+      let cancelled = false;
 
       const cleanup = () => {
         if (finished) {
@@ -180,42 +221,24 @@ export class CodexRunner implements Runner {
 
         finished = true;
         logStream.end();
+        if (opts.signal) {
+          opts.signal.removeEventListener("abort", handleAbort);
+        }
       };
-
+      const handleAbort = () => {
+        cancelled = true;
+        terminateRunnerChild(child, isWindows, opts.triggerId, "cancel");
+      };
       const timeoutId = setTimeout(() => {
         timedOut = true;
-
-        if (!child.pid) {
-          return;
-        }
-
-        logger.warn("Runner timeout reached; sending SIGTERM", {
-          triggerId: opts.triggerId,
-          pid: child.pid,
-          timeoutMs: opts.timeoutMs
-        });
-
-        try {
-          process.kill(-child.pid, "SIGTERM");
-        } catch {
-          // ignore
-        }
-
-        setTimeout(() => {
-          if (!finished && child.pid) {
-            logger.warn("Runner still alive after SIGTERM; sending SIGKILL", {
-              triggerId: opts.triggerId,
-              pid: child.pid
-            });
-
-            try {
-              process.kill(-child.pid, "SIGKILL");
-            } catch {
-              // ignore
-            }
-          }
-        }, FORCE_KILL_AFTER_MS);
+        terminateRunnerChild(child, isWindows, opts.triggerId, "timeout");
       }, opts.timeoutMs);
+
+      if (opts.signal?.aborted) {
+        handleAbort();
+      } else if (opts.signal) {
+        opts.signal.addEventListener("abort", handleAbort, { once: true });
+      }
 
       child.on("error", (error) => {
         clearTimeout(timeoutId);
@@ -248,6 +271,17 @@ export class CodexRunner implements Runner {
             lastOutput,
             outputText: outputText.trim() || undefined,
             errorMessage: `Runner timed out after ${opts.timeoutMs}ms`
+          });
+          return;
+        }
+
+        if (cancelled) {
+          resolve({
+            exitCode: 1,
+            cancelled: true,
+            lastOutput,
+            outputText: outputText.trim() || undefined,
+            errorMessage: "Runner cancelled by user"
           });
           return;
         }

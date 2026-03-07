@@ -28,21 +28,22 @@ export type DaemonTrigger = {
   id: string;
   prompt: string | Record<string, unknown>;
   runnerType: string;
+  model: string | null;
   status: string;
   agentConfigId: string;
   startedAt: string | null;
   errorMessage: string | null;
-  historyMarkdown: string | null;
   lastHeartbeatAt: string | null;
   conversationId: string | null;
   parentTriggerId: string | null;
   createdByMemberId: string;
+  targetDaemonId: string | null;
   claimedByDaemonId: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
-export type TriggerFinalStatus = "DONE" | "FAILED" | "REJECTED";
+export type TriggerFinalStatus = "DONE" | "CANCELLED" | "FAILED" | "REJECTED";
 
 export type ClaimResult = {
   ok: boolean;

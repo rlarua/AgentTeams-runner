@@ -10,12 +10,15 @@ export interface RunnerOptions {
   apiUrl: string;
   timeoutMs: number;
   agentConfigId: string;
+  model?: string | null;
+  signal?: AbortSignal;
   onStdoutChunk?: (chunk: string) => void;
   onStderrChunk?: (chunk: string) => void;
 }
 
 export type RunResult = {
   exitCode: number;
+  cancelled?: boolean;
   lastOutput?: string;
   outputText?: string;
   errorMessage?: string;

@@ -167,6 +167,20 @@ export class DaemonApiClient {
     }
   }
 
+  async isTriggerCancelRequested(triggerId: string): Promise<boolean> {
+    const response = await this.requestWithRetry(`/api/daemon-triggers/cancel-status/${triggerId}`, {
+      method: "GET",
+      headers: this.daemonHeaders()
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch trigger cancel status (${response.status})`);
+    }
+
+    const payload = await response.json() as { data: { cancelRequested: boolean } };
+    return payload.data.cancelRequested;
+  }
+
   async fetchTriggerRuntime(triggerId: string): Promise<TriggerRuntime> {
     const response = await this.requestWithRetry(`/api/daemon-triggers/${triggerId}/runtime`, {
       method: "GET",

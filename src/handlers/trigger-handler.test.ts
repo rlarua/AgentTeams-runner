@@ -9,15 +9,16 @@ const trigger: DaemonTrigger = {
   id: "trigger-1",
   prompt: "Implement feature",
   runnerType: "CODEX",
+  model: "o4-mini",
   status: "PENDING",
   agentConfigId: "agent-1",
   startedAt: null,
   errorMessage: null,
-  historyMarkdown: null,
   lastHeartbeatAt: null,
   conversationId: null,
   parentTriggerId: "parent-1",
   createdByMemberId: "member-1",
+  targetDaemonId: null,
   claimedByDaemonId: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z"
@@ -45,6 +46,10 @@ test("createTriggerHandler runs the runner, reports history, and marks success",
     fetchTriggerRuntime: async (...args: unknown[]) => {
       clientCalls.push({ method: "fetchTriggerRuntime", args });
       return runtime;
+    },
+    isTriggerCancelRequested: async (...args: unknown[]) => {
+      clientCalls.push({ method: "isTriggerCancelRequested", args });
+      return false;
     },
     updateTriggerHistory: async (...args: unknown[]) => {
       clientCalls.push({ method: "updateTriggerHistory", args });
@@ -105,6 +110,7 @@ test("createTriggerHandler runs the runner, reports history, and marks success",
   assert.equal(logEntries.some((entry) => entry.level === "WARN" && entry.message.includes("stderr")), true);
   assert.deepEqual(clientCalls.map((entry) => entry.method), [
     "fetchTriggerRuntime",
+    "isTriggerCancelRequested",
     "updateTriggerHistory",
     "updateTriggerStatus"
   ]);
@@ -120,6 +126,7 @@ test("createTriggerHandler restores parent history from server-side coaction con
       ...runtime,
       parentHistoryMarkdown: "### Summary\n- restored from coaction\n"
     }),
+    isTriggerCancelRequested: async () => false,
     updateTriggerHistory: async () => undefined,
     updateTriggerStatus: async () => undefined
   };
@@ -169,11 +176,61 @@ test("createTriggerHandler restores parent history from server-side coaction con
   }]);
 });
 
+test("createTriggerHandler overwrites existing parent history with server cumulative context", async () => {
+  const writtenFiles: Array<{ path: string; content: string }> = [];
+
+  const client = {
+    fetchTriggerRuntime: async () => ({
+      ...runtime,
+      parentHistoryMarkdown: "### Summary\n- cumulative from server\n"
+    }),
+    isTriggerCancelRequested: async () => false,
+    updateTriggerHistory: async () => undefined,
+    updateTriggerStatus: async () => undefined
+  };
+
+  const handler = createTriggerHandler({
+    config: {
+      daemonToken: "daemon-token",
+      apiUrl: "https://api.example",
+      pollingIntervalMs: 5000,
+      timeoutMs: 1500,
+      runnerCmd: "opencode"
+    },
+    client: client as never
+  }, {
+    createRunnerFactory: () => () => ({
+      run: async () => ({ exitCode: 0 } satisfies RunResult)
+    }),
+    createLogReporter: () => ({
+      start: () => undefined,
+      append: () => undefined,
+      stop: async () => undefined
+    }),
+    readHistoryFile: async () => "### Summary\n- stale local parent history\n",
+    writeHistoryFile: async (path, content) => {
+      writtenFiles.push({ path, content });
+    },
+    resolveRunnerHistoryPaths: () => ({
+      currentHistoryPath: "/auth/path/.agentteams/runner/history/trigger-1.md",
+      parentHistoryPath: "/auth/path/.agentteams/runner/history/parent-1.md"
+    })
+  });
+
+  await handler(trigger);
+
+  assert.deepEqual(writtenFiles, [{
+    path: "/auth/path/.agentteams/runner/history/parent-1.md",
+    content: "### Summary\n- cumulative from server"
+  }]);
+});
+
 test("createTriggerHandler reports runner failures and falls back to last output", async () => {
   const clientCalls: Array<{ method: string; args: unknown[] }> = [];
 
   const client = {
     fetchTriggerRuntime: async () => runtime,
+    isTriggerCancelRequested: async () => false,
     updateTriggerHistory: async (...args: unknown[]) => {
       clientCalls.push({ method: "updateTriggerHistory", args });
     },
@@ -218,6 +275,7 @@ test("createTriggerHandler stores stdout as fallback history when the runner omi
 
   const client = {
     fetchTriggerRuntime: async () => runtime,
+    isTriggerCancelRequested: async () => false,
     updateTriggerHistory: async (...args: unknown[]) => {
       clientCalls.push({ method: "updateTriggerHistory", args });
     },
@@ -271,6 +329,67 @@ test("createTriggerHandler stores stdout as fallback history when the runner omi
   assert.deepEqual(clientCalls.at(-1)?.args, ["trigger-1", "DONE", undefined]);
 });
 
+test("createTriggerHandler cancels the runner when the server reports a cancel request", async () => {
+  const clientCalls: Array<{ method: string; args: unknown[] }> = [];
+
+  const client = {
+    fetchTriggerRuntime: async () => runtime,
+    isTriggerCancelRequested: async (...args: unknown[]) => {
+      clientCalls.push({ method: "isTriggerCancelRequested", args });
+      return true;
+    },
+    updateTriggerHistory: async (...args: unknown[]) => {
+      clientCalls.push({ method: "updateTriggerHistory", args });
+    },
+    updateTriggerStatus: async (...args: unknown[]) => {
+      clientCalls.push({ method: "updateTriggerStatus", args });
+    }
+  };
+
+  const handler = createTriggerHandler({
+    config: {
+      daemonToken: "daemon-token",
+      apiUrl: "https://api.example",
+      pollingIntervalMs: 5000,
+      timeoutMs: 1500,
+      runnerCmd: "opencode"
+    },
+    client: client as never
+  }, {
+    createRunnerFactory: () => () => ({
+      run: async ({ signal }) => {
+        await new Promise<void>((resolve) => {
+          signal?.addEventListener("abort", () => resolve(), { once: true });
+          if (signal?.aborted) {
+            resolve();
+          }
+        });
+
+        return {
+          exitCode: 1,
+          cancelled: true,
+          errorMessage: "Runner cancelled by user"
+        } satisfies RunResult;
+      }
+    }),
+    createLogReporter: () => ({
+      start: () => undefined,
+      append: () => undefined,
+      stop: async () => undefined
+    }),
+    readHistoryFile: async () => "",
+    cancelPollIntervalMs: 1,
+    resolveRunnerHistoryPaths: () => ({
+      currentHistoryPath: "/auth/path/.agentteams/runner/history/trigger-1.md",
+      parentHistoryPath: null
+    })
+  });
+
+  await handler({ ...trigger, parentTriggerId: null });
+
+  assert.deepEqual(clientCalls.at(-1)?.args, ["trigger-1", "CANCELLED", "Runner cancelled by user"]);
+});
+
 test("createTriggerHandler marks the trigger as failed when runtime loading throws", async () => {
   const errors: Array<{ message: string; meta?: Record<string, unknown> }> = [];
   mock.method(logger, "error", (message: string, meta?: Record<string, unknown>) => {
@@ -282,6 +401,7 @@ test("createTriggerHandler marks the trigger as failed when runtime loading thro
     fetchTriggerRuntime: async () => {
       throw new Error("runtime boom");
     },
+    isTriggerCancelRequested: async () => false,
     updateTriggerHistory: async (...args: unknown[]) => {
       clientCalls.push({ method: "updateTriggerHistory", args });
     },
