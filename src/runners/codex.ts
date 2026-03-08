@@ -1,5 +1,5 @@
 import { createWriteStream } from "node:fs";
-import { spawn } from "node:child_process";
+import { execSync, spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { platform } from "node:os";
 import { dirname, join } from "node:path";
@@ -68,7 +68,7 @@ const terminateRunnerChild = (
 
   try {
     if (isWindows) {
-      child.kill("SIGTERM");
+      execSync(`taskkill /F /T /PID ${child.pid}`, { stdio: "ignore" });
     } else {
       process.kill(-child.pid, "SIGTERM");
     }
@@ -76,17 +76,17 @@ const terminateRunnerChild = (
     // ignore
   }
 
-  setTimeout(() => {
-    try {
-      if (isWindows) {
-        child.kill("SIGKILL");
-      } else if (child.pid) {
-        process.kill(-child.pid, "SIGKILL");
+  if (!isWindows) {
+    setTimeout(() => {
+      try {
+        if (child.pid) {
+          process.kill(-child.pid, "SIGKILL");
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
-    }
-  }, FORCE_KILL_AFTER_MS);
+    }, FORCE_KILL_AFTER_MS);
+  }
 };
 
 export class CodexRunner implements Runner {
