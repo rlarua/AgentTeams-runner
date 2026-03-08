@@ -1,5 +1,8 @@
 # @rlarua/agentrunner
 
+[![GitHub](https://img.shields.io/badge/GitHub-rlarua%2FAgentTeams--runner-blue?logo=github)](https://github.com/rlarua/AgentTeams-runner)
+[![Issues](https://img.shields.io/github/issues/rlarua/AgentTeams-runner)](https://github.com/rlarua/AgentTeams-runner/issues)
+
 A background runner that polls and executes AI agent tasks from the AgentTeams platform.
 
 ## Prerequisites

@@ -6,7 +6,6 @@ test/
 # 소스 파일 (빌드된 dist만 배포)
 src/
 tsconfig.json
-jest.config.js
 
 # 개발 파일
 .git/
@@ -21,7 +20,3 @@ node_modules/
 .idea/
 *.swp
 *.swo
-
-# 개발 문서
-DEVELOPMENT.md
-API-CLI-WORKFLOW.md
