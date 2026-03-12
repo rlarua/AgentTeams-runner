@@ -109,6 +109,17 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
     const basePrompt = toPromptString(trigger.prompt);
     const isContinuation = Boolean(trigger.parentTriggerId);
 
+    const planModePrefix = trigger.planMode
+      ? [
+          "**[PLAN MODE - NO CODE MODIFICATIONS]**",
+          "You are in Plan Mode. You MUST NOT modify, create, or delete any code files.",
+          "Your task is to analyze the request and produce a written plan only.",
+          "Create the plan and register it using the AgentTeams CLI (`agentteams plan create`).",
+          "Do NOT implement any code changes.",
+          "",
+        ].join("\n")
+      : "";
+
     const historyLines = [
       "",
       "----",
@@ -133,7 +144,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       "----"
     ];
 
-    return `${basePrompt}\n${historyLines.join("\n")}`;
+    return `${planModePrefix}${basePrompt}\n${historyLines.join("\n")}`;
   };
 
   return async (trigger: DaemonTrigger): Promise<void> => {

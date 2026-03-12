@@ -38,6 +38,7 @@ export type DaemonTrigger = {
   parentTriggerId: string | null;
   createdByMemberId: string;
   targetDaemonId: string | null;
+  planMode: boolean;
   claimedByDaemonId: string | null;
   createdAt: string;
   updatedAt: string;

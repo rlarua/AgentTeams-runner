@@ -25,6 +25,7 @@ const trigger: DaemonTrigger = {
   conversationId: null,
   parentTriggerId: null,
   createdByMemberId: "member-1",
+  planMode: false,
   targetDaemonId: null,
   claimedByDaemonId: null,
   createdAt: "2026-01-01T00:00:00.000Z",
