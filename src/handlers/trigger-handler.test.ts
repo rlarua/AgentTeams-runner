@@ -21,6 +21,9 @@ const trigger: DaemonTrigger = {
   planMode: false,
   targetDaemonId: null,
   claimedByDaemonId: null,
+  useWorktree: false,
+  baseBranch: null,
+  worktreeStatus: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z"
 };
@@ -30,7 +33,9 @@ const runtime: TriggerRuntime = {
   agentConfigId: "agent-1",
   authPath: "/auth/path",
   apiKey: "api-key",
-  parentHistoryMarkdown: null
+  parentHistoryMarkdown: null,
+  useWorktree: false,
+  baseBranch: null
 };
 
 test.afterEach(() => {

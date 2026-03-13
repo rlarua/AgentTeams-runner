@@ -6,6 +6,7 @@ import { logger } from "../logger.js";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveRunnerHistoryPaths } from "../utils/runner-history.js";
+import { isGitRepo, createWorktree } from "../utils/git-worktree.js";
 
 type TriggerHandlerOptions = {
   config: RuntimeConfig;
@@ -186,7 +187,44 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       });
       activeLogReporter.append("INFO", `Runtime fetched (agentConfigId=${runtime.agentConfigId}).`);
 
-      const historyPaths = resolveHistoryPaths(runtime.authPath, trigger.id, trigger.parentTriggerId);
+      let effectiveAuthPath = runtime.authPath;
+
+      if (runtime.useWorktree && runtime.authPath) {
+        try {
+          if (isGitRepo(runtime.authPath)) {
+            const worktreePath = createWorktree(runtime.authPath, {
+              triggerId: trigger.id,
+              baseBranch: runtime.baseBranch
+            });
+            effectiveAuthPath = worktreePath;
+            await client.reportWorktreeStatus(trigger.id, "ACTIVE");
+            activeLogReporter.append("INFO", `Worktree created at ${worktreePath}.`);
+            logger.info("Worktree created for trigger", {
+              triggerId: trigger.id,
+              worktreePath
+            });
+          } else {
+            logger.warn("Worktree requested but authPath is not a git repo, falling back to authPath", {
+              triggerId: trigger.id,
+              authPath: runtime.authPath
+            });
+            activeLogReporter.append("WARN", "Worktree requested but authPath is not a git repo. Falling back to authPath.");
+          }
+        } catch (err) {
+          logger.warn("Failed to create worktree, falling back to authPath", {
+            triggerId: trigger.id,
+            error: err instanceof Error ? err.message : String(err)
+          });
+          activeLogReporter.append("WARN", `Worktree creation failed: ${err instanceof Error ? err.message : String(err)}. Falling back to authPath.`);
+          try {
+            await client.reportWorktreeStatus(trigger.id, "FAILED");
+          } catch {
+            // Ignore status report failure
+          }
+        }
+      }
+
+      const historyPaths = resolveHistoryPaths(effectiveAuthPath, trigger.id, trigger.parentTriggerId);
       currentHistoryPath = historyPaths.currentHistoryPath;
       await restoreParentHistoryFromServer(historyPaths.parentHistoryPath, runtime.parentHistoryMarkdown);
       const runnerPrompt = buildRunnerPrompt(trigger, historyPaths.currentHistoryPath, historyPaths.parentHistoryPath);
@@ -224,7 +262,7 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       const runResult = await runner.run({
         triggerId: trigger.id,
         prompt: runnerPrompt,
-        authPath: runtime.authPath,
+        authPath: effectiveAuthPath,
         apiKey: runtime.apiKey,
         apiUrl: config.apiUrl,
         timeoutMs: config.timeoutMs,

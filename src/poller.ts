@@ -1,6 +1,8 @@
 import { logger } from "./logger.js";
 import { DaemonApiClient } from "./api-client.js";
 import { runCleanup } from "./utils/runner-cleanup.js";
+import { removeWorktree } from "./utils/git-worktree.js";
+import path from "node:path";
 import type { DaemonTrigger, RuntimeConfig } from "./types.js";
 
 type TriggerHandlerFactory = (onAuthPathDiscovered: (authPath: string) => void) => (trigger: DaemonTrigger) => Promise<void>;
@@ -8,8 +10,9 @@ type TriggerHandlerFactory = (onAuthPathDiscovered: (authPath: string) => void) 
 const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 type PollingDependencies = {
-  createClient?: (config: RuntimeConfig) => Pick<DaemonApiClient, "fetchPendingTrigger" | "claimTrigger" | "fetchOrphanedCancelRequested" | "updateTriggerStatus">;
+  createClient?: (config: RuntimeConfig) => Pick<DaemonApiClient, "fetchPendingTrigger" | "claimTrigger" | "fetchOrphanedCancelRequested" | "updateTriggerStatus" | "fetchPendingWorktreeRemovals" | "reportWorktreeStatus">;
   runCleanup?: (authPath: string) => Promise<void>;
+  removeWorktree?: typeof removeWorktree;
   setInterval?: typeof global.setInterval;
   clearInterval?: typeof global.clearInterval;
   processOn?: (event: NodeJS.Signals, listener: () => void) => void;
@@ -25,6 +28,7 @@ export const startPolling = async (
 ): Promise<void> => {
   const client = dependencies.createClient?.(config) ?? new DaemonApiClient(config.apiUrl, config.daemonToken);
   const cleanupRunner = dependencies.runCleanup ?? runCleanup;
+  const removeWorktreeFn = dependencies.removeWorktree ?? removeWorktree;
   const now = dependencies.now ?? Date.now;
   const registerInterval = dependencies.setInterval ?? global.setInterval;
   const unregisterInterval = dependencies.clearInterval ?? global.clearInterval;
@@ -82,6 +86,41 @@ export const startPolling = async (
     }
   };
 
+  const processWorktreeRemovals = async () => {
+    try {
+      const triggers = await client.fetchPendingWorktreeRemovals();
+      for (const trigger of triggers) {
+        try {
+          let removed = false;
+          for (const authPath of knownAuthPaths) {
+            const worktreePath = path.join(authPath, ".agentteams", "worktrees", `trigger-${trigger.id}`);
+            try {
+              removeWorktreeFn(authPath, worktreePath, trigger.id);
+              removed = true;
+              logger.info("Worktree removed for trigger", { triggerId: trigger.id, worktreePath });
+              break;
+            } catch {
+              // This authPath may not be the right one, try next
+            }
+          }
+          if (!removed) {
+            logger.warn("Could not find authPath for worktree removal", { triggerId: trigger.id });
+          }
+          await client.reportWorktreeStatus(trigger.id, "REMOVED");
+        } catch (error) {
+          logger.warn("Failed to remove worktree for trigger", {
+            triggerId: trigger.id,
+            error: error instanceof Error ? error.message : String(error)
+          });
+        }
+      }
+    } catch (error) {
+      logger.warn("Failed to fetch pending worktree removals", {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  };
+
   const pollOnce = async () => {
     if (isPolling) {
       return;
@@ -91,6 +130,7 @@ export const startPolling = async (
     try {
       maybeRunCleanup();
       await autoCancelOrphanedTriggers();
+      await processWorktreeRemovals();
 
       const pending = await client.fetchPendingTrigger();
       if (!pending) {

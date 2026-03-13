@@ -29,6 +29,9 @@ const trigger: DaemonTrigger = {
   planMode: false,
   targetDaemonId: null,
   claimedByDaemonId: null,
+  useWorktree: false,
+  baseBranch: null,
+  worktreeStatus: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z"
 };
@@ -54,7 +57,9 @@ test("startPolling handles a claimed trigger, registers auth paths, and runs sch
     fetchPendingTrigger: async () => pending.shift() ?? null,
     claimTrigger: async () => ({ ok: true, conflict: false }),
     fetchOrphanedCancelRequested: async () => [] as string[],
-    updateTriggerStatus: async () => undefined
+    updateTriggerStatus: async () => undefined,
+    fetchPendingWorktreeRemovals: async () => [],
+    reportWorktreeStatus: async () => undefined
   };
 
   const createHandler = (onAuthPathDiscovered: (authPath: string) => void) => {
@@ -121,7 +126,9 @@ test("startPolling logs conflicts and suppresses overlapping polling cycles", as
     }),
     claimTrigger: async () => ({ ok: false, conflict: true }),
     fetchOrphanedCancelRequested: async () => [] as string[],
-    updateTriggerStatus: async () => undefined
+    updateTriggerStatus: async () => undefined,
+    fetchPendingWorktreeRemovals: async () => [],
+    reportWorktreeStatus: async () => undefined
   };
 
   const intervalCallbacks: Array<() => void> = [];
@@ -176,7 +183,9 @@ test("startPolling clears the interval and exits on shutdown signals", async () 
       fetchPendingTrigger: async () => null,
       claimTrigger: async () => ({ ok: true, conflict: false }),
       fetchOrphanedCancelRequested: async () => [] as string[],
-      updateTriggerStatus: async () => undefined
+      updateTriggerStatus: async () => undefined,
+    fetchPendingWorktreeRemovals: async () => [],
+    reportWorktreeStatus: async () => undefined
     }),
     runCleanup: async () => undefined,
     setInterval: (() => intervalHandle) as typeof setInterval,

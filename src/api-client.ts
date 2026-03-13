@@ -209,6 +209,35 @@ export class DaemonApiClient {
     return payload.data;
   }
 
+  async reportWorktreeStatus(triggerId: string, status: string): Promise<void> {
+    const response = await this.requestWithRetry(`/api/daemon-triggers/${triggerId}/worktree/status`, {
+      method: "PATCH",
+      headers: {
+        ...this.daemonHeaders(),
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ worktreeStatus: status })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to report worktree status (${response.status})`);
+    }
+  }
+
+  async fetchPendingWorktreeRemovals(): Promise<DaemonTrigger[]> {
+    const response = await this.requestWithRetry("/api/daemon-triggers/worktree/pending-removal", {
+      method: "GET",
+      headers: this.daemonHeaders()
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to fetch pending worktree removals (${response.status})`);
+    }
+
+    const payload = await response.json() as { data: DaemonTrigger[] };
+    return payload.data;
+  }
+
   async appendTriggerLogs(triggerId: string, input: { logs?: TriggerLogInput[]; heartbeat?: boolean }): Promise<void> {
     const response = await this.requestWithRetry(`/api/daemon-triggers/${triggerId}/logs`, {
       method: "POST",

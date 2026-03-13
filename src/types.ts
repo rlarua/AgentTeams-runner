@@ -41,6 +41,9 @@ export type DaemonTrigger = {
   targetDaemonId: string | null;
   planMode: boolean;
   claimedByDaemonId: string | null;
+  useWorktree: boolean;
+  baseBranch: string | null;
+  worktreeStatus: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -58,6 +61,8 @@ export type TriggerRuntime = {
   authPath: string | null;
   apiKey: string;
   parentHistoryMarkdown: string | null;
+  useWorktree: boolean;
+  baseBranch: string | null;
 };
 
 export type TriggerLogLevel = "INFO" | "WARN" | "ERROR";
