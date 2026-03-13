@@ -309,8 +309,8 @@ export class OpenCodeRunner implements Runner {
             lastOutput,
             outputText: outputText.trim() || undefined,
             errorMessage: idleTimedOut
-              ? `Runner idle timed out after ${opts.idleTimeoutMs}ms of no output`
-              : `Runner timed out after ${opts.timeoutMs}ms`
+              ? `Runner idle timed out after ${Math.round(opts.idleTimeoutMs / 60_000)}m of no output`
+              : `Runner timed out after ${Math.round(opts.timeoutMs / 60_000)}m`
           });
           return;
         }

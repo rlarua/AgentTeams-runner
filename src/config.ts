@@ -5,7 +5,7 @@ import type { DaemonConfigFile, RuntimeConfig } from "./types.js";
 
 const DEFAULT_POLLING_INTERVAL_MS = 30_000;
 const DEFAULT_TIMEOUT_MS = 1_800_000;
-const DEFAULT_IDLE_TIMEOUT_MS = 120_000;
+const DEFAULT_IDLE_TIMEOUT_MS = 600_000;
 const DEFAULT_RUNNER_CMD = "opencode";
 const DEFAULT_API_URL = "https://api.agentteams.run";
 

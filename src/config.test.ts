@@ -107,6 +107,7 @@ test("resolveRuntimeConfig prefers environment variables and applies numeric par
       apiUrl: "https://env.example",
       pollingIntervalMs: 30_000,
       timeoutMs: 1234,
+      idleTimeoutMs: 600_000,
       runnerCmd: "codex"
     });
   });
