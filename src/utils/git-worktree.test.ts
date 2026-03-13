@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
@@ -135,6 +135,27 @@ test("removeWorktree cleans up worktree and branch", () => {
       encoding: "utf8"
     }).trim();
     assert.equal(branches, "");
+  } finally {
+    cleanupDir(repo);
+    const repoName = basename(repo);
+    cleanupDir(join(dirname(repo), `.${repoName}-worktrees`));
+  }
+});
+
+test("createWorktree symlinks .agentteams from original repo", () => {
+  const repo = makeTempGitRepo();
+  const worktreeId = "test-wt-symlink";
+  try {
+    // Create .agentteams/ in the original repo
+    const agentteamsDir = join(repo, ".agentteams");
+    mkdirSync(agentteamsDir, { recursive: true });
+
+    const worktreePath = createWorktree(repo, { worktreeId });
+    const targetLink = join(worktreePath, ".agentteams");
+
+    assert.equal(existsSync(targetLink), true);
+    assert.equal(lstatSync(targetLink).isSymbolicLink(), true);
+    assert.equal(readlinkSync(targetLink), agentteamsDir);
   } finally {
     cleanupDir(repo);
     const repoName = basename(repo);

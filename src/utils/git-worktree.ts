@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 
 export function isGitRepo(dirPath: string): boolean {
@@ -51,6 +51,17 @@ export function createWorktree(authPath: string, options: {
     throw new Error(
       `Failed to create git worktree for worktreeId ${worktreeId}: ${error instanceof Error ? error.message : String(error)}`
     );
+  }
+
+  // Symlink .agentteams/ from original repo (gitignored, not in worktree)
+  const sourceAgentteams = path.join(authPath, ".agentteams");
+  const targetAgentteams = path.join(worktreePath, ".agentteams");
+  if (existsSync(sourceAgentteams) && !existsSync(targetAgentteams)) {
+    try {
+      symlinkSync(sourceAgentteams, targetAgentteams, "dir");
+    } catch {
+      // Non-critical: agent can still work without conventions
+    }
   }
 
   return worktreePath;
