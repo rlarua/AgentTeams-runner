@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 
 export function isGitRepo(dirPath: string): boolean {
@@ -62,6 +62,36 @@ export function createWorktree(authPath: string, options: {
     } catch {
       // Non-critical: agent can still work without conventions
     }
+  }
+
+  // Symlink gitignored .env* files (root + workspace subdirs)
+  try {
+    const symlinkEnvFiles = (dir: string, prefix: string = "") => {
+      try {
+        for (const entry of readdirSync(dir)) {
+          if (!entry.startsWith(".env")) continue;
+          const relPath = prefix ? path.join(prefix, entry) : entry;
+          const absPath = path.join(authPath, relPath);
+          const wtPath = path.join(worktreePath, relPath);
+          // Git-tracked files (e.g. .env.example) already exist in worktree — skip them
+          if (existsSync(absPath) && !existsSync(wtPath)) {
+            symlinkSync(absPath, wtPath);
+          }
+        }
+      } catch { /* ignore read errors */ }
+    };
+
+    // Root level
+    symlinkEnvFiles(authPath);
+
+    // First-level subdirectories (workspace level)
+    for (const entry of readdirSync(authPath, { withFileTypes: true })) {
+      if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") {
+        symlinkEnvFiles(path.join(authPath, entry.name), entry.name);
+      }
+    }
+  } catch {
+    // Non-critical: worktree can still work without env files
   }
 
   return worktreePath;
