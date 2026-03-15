@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export function isGitRepo(dirPath: string): boolean {
@@ -62,6 +62,29 @@ export function createWorktree(authPath: string, options: {
     } catch {
       // Non-critical: agent can still work without conventions
     }
+  }
+
+  // Allow Claude Code sandbox to access symlinked paths in the original repo
+  try {
+    const claudeSettingsDir = path.join(worktreePath, ".claude");
+    const claudeSettingsPath = path.join(claudeSettingsDir, "settings.local.json");
+    if (!existsSync(claudeSettingsDir)) {
+      mkdirSync(claudeSettingsDir, { recursive: true });
+    }
+    const existing = existsSync(claudeSettingsPath)
+      ? JSON.parse(readFileSync(claudeSettingsPath, "utf8"))
+      : {};
+    const sandbox = existing.sandbox ?? {};
+    const fs = sandbox.filesystem ?? {};
+    const allowWrite: string[] = fs.allowWrite ?? [];
+    const normalizedAuthPath = `//${authPath}`;
+    if (!allowWrite.includes(normalizedAuthPath)) {
+      allowWrite.push(normalizedAuthPath);
+    }
+    existing.sandbox = { ...sandbox, filesystem: { ...fs, allowWrite } };
+    writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2) + "\n");
+  } catch {
+    // Non-critical: sandbox config failure won't block runner
   }
 
   // Symlink gitignored .env* files (root + workspace subdirs)
