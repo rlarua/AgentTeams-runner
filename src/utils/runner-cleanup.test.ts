@@ -88,13 +88,14 @@ test("runCleanup logs a warning and continues when an expired file cannot be del
     await touchAge(lockedFile, 2 * 24 * 60 * 60 * 1000);
     await touchAge(historyFile, 4 * 24 * 60 * 60 * 1000);
 
-    await import("node:fs/promises").then(({ chmod }) => chmod(logDir, 0o500));
-
-    try {
-      await runCleanup(authPath);
-    } finally {
-      await import("node:fs/promises").then(({ chmod }) => chmod(logDir, 0o700));
-    }
+    await runCleanup(authPath, {
+      unlink: async (filePath) => {
+        if (filePath === lockedFile) {
+          throw new Error("file is locked");
+        }
+        await import("node:fs/promises").then(async ({ unlink }) => unlink(filePath));
+      }
+    });
 
     assert.equal(warnings.length >= 1, true);
     await import("node:fs/promises").then(async ({ stat }) => {

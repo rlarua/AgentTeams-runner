@@ -3,9 +3,19 @@ import test from "node:test";
 import { buildCodexExecArgs, resolveCodexSandboxLevel } from "./codex.js";
 
 test("resolveCodexSandboxLevel defaults to workspace-write", () => {
-  assert.equal(resolveCodexSandboxLevel(undefined), "workspace-write");
-  assert.equal(resolveCodexSandboxLevel(""), "workspace-write");
-  assert.equal(resolveCodexSandboxLevel("danger-full-access"), "workspace-write");
+  const original = process.env.CODEX_SANDBOX_LEVEL;
+  try {
+    delete process.env.CODEX_SANDBOX_LEVEL;
+    assert.equal(resolveCodexSandboxLevel(undefined), "workspace-write");
+    assert.equal(resolveCodexSandboxLevel(""), "workspace-write");
+    assert.equal(resolveCodexSandboxLevel("danger-full-access"), "workspace-write");
+  } finally {
+    if (original !== undefined) {
+      process.env.CODEX_SANDBOX_LEVEL = original;
+    } else {
+      delete process.env.CODEX_SANDBOX_LEVEL;
+    }
+  }
 });
 
 test("resolveCodexSandboxLevel accepts off", () => {

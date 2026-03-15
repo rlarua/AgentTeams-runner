@@ -82,7 +82,7 @@ export function createWorktree(authPath: string, options: {
       allowWrite.push(normalizedAuthPath);
     }
     existing.sandbox = { ...sandbox, filesystem: { ...fs, allowWrite } };
-    writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2) + "\n");
+    writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   } catch {
     // Non-critical: sandbox config failure won't block runner
   }

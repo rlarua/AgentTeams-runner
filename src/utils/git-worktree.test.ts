@@ -43,9 +43,9 @@ test("isGitRepo returns false for a non-existent directory", () => {
 });
 
 test("resolveWorktreePath returns sibling directory path", () => {
-  const authPath = "/home/user/projects/my-repo";
+  const authPath = join("home", "user", "projects", "my-repo");
   const worktreeId = "abc123";
-  const expected = "/home/user/projects/.my-repo-worktrees/wt-abc123";
+  const expected = join("home", "user", "projects", ".my-repo-worktrees", "wt-abc123");
   assert.equal(resolveWorktreePath(authPath, worktreeId), expected);
 });
 

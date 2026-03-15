@@ -13,9 +13,13 @@ import {
 
 const envKeys = [
   "HOME",
+  "USERPROFILE",
+  "HOMEDRIVE",
+  "HOMEPATH",
   "AGENTTEAMS_DAEMON_TOKEN",
   "AGENTTEAMS_API_URL",
   "POLLING_INTERVAL_MS",
+  "IDLE_TIMEOUT_MS",
   "TIMEOUT_MS",
   "RUNNER_CMD"
 ] as const;
@@ -29,6 +33,9 @@ const withTempHome = async (run: (homeDir: string) => Promise<void>): Promise<vo
 
   const homeDir = await mkdtemp(join(tmpdir(), "daemon-config-test-"));
   process.env.HOME = homeDir;
+  process.env.USERPROFILE = homeDir;
+  process.env.HOMEDRIVE = "";
+  process.env.HOMEPATH = "";
 
   try {
     await run(homeDir);
