@@ -19,6 +19,49 @@ export function resolveWorktreePath(authPath: string, worktreeId: string): strin
   return path.join(path.dirname(authPath), `.${repoName}-worktrees`, `wt-${worktreeId}`);
 }
 
+export function normalizeClaudeSandboxPath(authPath: string): string {
+  return authPath;
+}
+
+export function healWorktreeConfig(authPath: string, worktreePath: string): void {
+  // Ensure .agentteams/ symlink exists
+  const sourceAgentteams = path.join(authPath, ".agentteams");
+  const targetAgentteams = path.join(worktreePath, ".agentteams");
+  if (existsSync(sourceAgentteams) && !existsSync(targetAgentteams)) {
+    try {
+      symlinkSync(sourceAgentteams, targetAgentteams, "dir");
+    } catch {
+      // Non-critical: agent can still work without conventions
+    }
+  }
+
+  // Ensure Claude Code sandbox allows access to the original repo
+  try {
+    const claudeSettingsDir = path.join(worktreePath, ".claude");
+    const claudeSettingsPath = path.join(claudeSettingsDir, "settings.local.json");
+    if (!existsSync(claudeSettingsDir)) {
+      mkdirSync(claudeSettingsDir, { recursive: true });
+    }
+    const existing = existsSync(claudeSettingsPath)
+      ? JSON.parse(readFileSync(claudeSettingsPath, "utf8"))
+      : {};
+    const sandbox = existing.sandbox ?? {};
+    const fs = sandbox.filesystem ?? {};
+    const allowWrite: string[] = fs.allowWrite ?? [];
+    const correctPath = normalizeClaudeSandboxPath(authPath);
+
+    // Remove malformed entries (e.g. ///Users/... from previous bug)
+    const cleaned = allowWrite.filter((p: string) => p === correctPath || !p.endsWith(authPath));
+    if (!cleaned.includes(correctPath)) {
+      cleaned.push(correctPath);
+    }
+    existing.sandbox = { ...sandbox, filesystem: { ...fs, allowWrite: cleaned } };
+    writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
+  } catch {
+    // Non-critical: sandbox config failure won't block runner
+  }
+}
+
 export function createWorktree(authPath: string, options: {
   worktreeId: string;
   baseBranch?: string | null;
@@ -33,6 +76,7 @@ export function createWorktree(authPath: string, options: {
 
   // Reuse existing worktree (continue trigger case)
   if (existsSync(worktreePath) && isGitRepo(worktreePath)) {
+    healWorktreeConfig(authPath, worktreePath);
     return worktreePath;
   }
 
@@ -53,39 +97,7 @@ export function createWorktree(authPath: string, options: {
     );
   }
 
-  // Symlink .agentteams/ from original repo (gitignored, not in worktree)
-  const sourceAgentteams = path.join(authPath, ".agentteams");
-  const targetAgentteams = path.join(worktreePath, ".agentteams");
-  if (existsSync(sourceAgentteams) && !existsSync(targetAgentteams)) {
-    try {
-      symlinkSync(sourceAgentteams, targetAgentteams, "dir");
-    } catch {
-      // Non-critical: agent can still work without conventions
-    }
-  }
-
-  // Allow Claude Code sandbox to access symlinked paths in the original repo
-  try {
-    const claudeSettingsDir = path.join(worktreePath, ".claude");
-    const claudeSettingsPath = path.join(claudeSettingsDir, "settings.local.json");
-    if (!existsSync(claudeSettingsDir)) {
-      mkdirSync(claudeSettingsDir, { recursive: true });
-    }
-    const existing = existsSync(claudeSettingsPath)
-      ? JSON.parse(readFileSync(claudeSettingsPath, "utf8"))
-      : {};
-    const sandbox = existing.sandbox ?? {};
-    const fs = sandbox.filesystem ?? {};
-    const allowWrite: string[] = fs.allowWrite ?? [];
-    const normalizedAuthPath = `//${authPath}`;
-    if (!allowWrite.includes(normalizedAuthPath)) {
-      allowWrite.push(normalizedAuthPath);
-    }
-    existing.sandbox = { ...sandbox, filesystem: { ...fs, allowWrite } };
-    writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
-  } catch {
-    // Non-critical: sandbox config failure won't block runner
-  }
+  healWorktreeConfig(authPath, worktreePath);
 
   // Symlink gitignored .env* files (root + workspace subdirs)
   try {

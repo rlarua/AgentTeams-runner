@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import { isGitRepo, createWorktree, removeWorktree, resolveWorktreePath } from "./git-worktree.js";
+import { isGitRepo, createWorktree, removeWorktree, resolveWorktreePath, normalizeClaudeSandboxPath, healWorktreeConfig } from "./git-worktree.js";
 
 const makeTempGitRepo = (): string => {
   const dir = mkdtempSync(join(tmpdir(), "git-worktree-test-"));
@@ -286,5 +286,91 @@ test("removeWorktree handles already-removed worktree gracefully", () => {
     removeWorktree(repo, worktreePath, worktreeId);
   } finally {
     cleanupDir(repo);
+  }
+});
+
+test("normalizeClaudeSandboxPath returns absolute path as-is", () => {
+  assert.equal(normalizeClaudeSandboxPath("/Users/justin/Project"), "/Users/justin/Project");
+  assert.equal(normalizeClaudeSandboxPath("/home/user/repo"), "/home/user/repo");
+});
+
+test("createWorktree writes correct Claude sandbox allowWrite path", () => {
+  const repo = makeTempGitRepo();
+  const worktreeId = "test-wt-sandbox";
+  try {
+    const worktreePath = createWorktree(repo, { worktreeId });
+    const settingsPath = join(worktreePath, ".claude", "settings.local.json");
+
+    assert.equal(existsSync(settingsPath), true);
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    const allowWrite: string[] = settings.sandbox.filesystem.allowWrite;
+
+    // Must contain the exact authPath without extra slashes
+    assert.ok(allowWrite.includes(repo), `allowWrite should contain "${repo}", got: ${JSON.stringify(allowWrite)}`);
+    // Must NOT contain the old triple-slash format
+    const badEntries = allowWrite.filter((p: string) => p.startsWith("//"));
+    assert.equal(badEntries.length, 0, `allowWrite should not contain //-prefixed paths, got: ${JSON.stringify(badEntries)}`);
+  } finally {
+    cleanupDir(repo);
+    const repoName = basename(repo);
+    cleanupDir(join(dirname(repo), `.${repoName}-worktrees`));
+  }
+});
+
+test("healWorktreeConfig fixes malformed sandbox paths on reuse", () => {
+  const repo = makeTempGitRepo();
+  const worktreeId = "test-wt-heal";
+  try {
+    const worktreePath = createWorktree(repo, { worktreeId });
+    const settingsPath = join(worktreePath, ".claude", "settings.local.json");
+
+    // Simulate the old bug: write a malformed entry
+    const malformed = { sandbox: { filesystem: { allowWrite: [`///${repo}`] } } };
+    writeFileSync(settingsPath, JSON.stringify(malformed, null, 2) + "\n", "utf-8");
+
+    // Reuse the worktree (triggers healWorktreeConfig)
+    const reusedPath = createWorktree(repo, { worktreeId });
+    assert.equal(reusedPath, worktreePath);
+
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    const allowWrite: string[] = settings.sandbox.filesystem.allowWrite;
+
+    // Malformed entry should be replaced with correct path
+    assert.ok(allowWrite.includes(repo), `allowWrite should contain "${repo}", got: ${JSON.stringify(allowWrite)}`);
+    const badEntries = allowWrite.filter((p: string) => p.startsWith("//"));
+    assert.equal(badEntries.length, 0, `malformed paths should be cleaned, got: ${JSON.stringify(badEntries)}`);
+  } finally {
+    cleanupDir(repo);
+    const repoName = basename(repo);
+    cleanupDir(join(dirname(repo), `.${repoName}-worktrees`));
+  }
+});
+
+test("healWorktreeConfig restores missing .agentteams symlink on reuse", () => {
+  const repo = makeTempGitRepo();
+  const worktreeId = "test-wt-heal-symlink";
+  try {
+    // Create .agentteams/ in the original repo
+    mkdirSync(join(repo, ".agentteams"), { recursive: true });
+
+    const worktreePath = createWorktree(repo, { worktreeId });
+    const targetLink = join(worktreePath, ".agentteams");
+
+    // Verify symlink was created on first run
+    assert.equal(lstatSync(targetLink).isSymbolicLink(), true);
+
+    // Simulate broken state: remove the symlink
+    unlinkSync(targetLink);
+    assert.equal(existsSync(targetLink), false);
+
+    // Reuse triggers healWorktreeConfig which should restore the symlink
+    const reusedPath = createWorktree(repo, { worktreeId });
+    assert.equal(reusedPath, worktreePath);
+    assert.equal(existsSync(targetLink), true);
+    assert.equal(lstatSync(targetLink).isSymbolicLink(), true);
+  } finally {
+    cleanupDir(repo);
+    const repoName = basename(repo);
+    cleanupDir(join(dirname(repo), `.${repoName}-worktrees`));
   }
 });
