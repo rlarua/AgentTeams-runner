@@ -16,8 +16,42 @@ const PROMPT_PREVIEW_MAX = 500;
 const OUTPUT_PREVIEW_MAX = 400;
 const OUTPUT_CAPTURE_MAX = 200_000;
 
+export const buildClaudeCodeArgs = (prompt: string, model?: string | null): string[] => {
+  const modelArgs = model ? ["--model", model] : [];
+  return ["-p", "--output-format", "stream-json", "--verbose", ...modelArgs, prompt];
+};
+
+export const extractResultTextFromStreamJson = (outputText: string): string => {
+  const trimmedOutput = outputText.trim();
+  const lines = trimmedOutput
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index];
+
+    if (!line.includes("\"type\":\"result\"")) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(line) as { type?: string; result?: unknown };
+      if (parsed.type === "result" && typeof parsed.result === "string" && parsed.result.trim().length > 0) {
+        return parsed.result.trim();
+      }
+    } catch {
+      return trimmedOutput;
+    }
+  }
+
+  return trimmedOutput;
+};
+
 const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: string, model?: string | null): string => {
-  const modelSegment = model ? ` '--model' '${model.replaceAll("'", "''")}'` : "";
+  const argSegment = buildClaudeCodeArgs(prompt, model)
+    .map((arg) => ` '${arg.replaceAll("'", "''")}'`)
+    .join("");
   const scriptContent = [
     "$ErrorActionPreference = 'Stop'",
     "$utf8NoBom = [System.Text.UTF8Encoding]::new($false)",
@@ -28,7 +62,7 @@ const toPowerShellEncodedCommand = (resolvedExecutablePath: string, prompt: stri
     `$promptText = @'`,
     `${prompt.replaceAll("'@", "'@")}`,
     `'@`,
-    `$promptText | & '${resolvedExecutablePath.replaceAll("'", "''")}' '-p'${modelSegment}`
+    `$promptText | & '${resolvedExecutablePath.replaceAll("'", "''")}'${argSegment}`
   ].join("\r\n");
 
   return Buffer.from(scriptContent, "utf16le").toString("base64");
@@ -109,7 +143,7 @@ export class ClaudeCodeRunner implements Runner {
     const windowsEncodedCommand = isWindows
       ? toPowerShellEncodedCommand(resolvedExecutablePath, opts.prompt, opts.model)
       : null;
-    const modelArgs = opts.model ? ["--model", opts.model] : [];
+    const claudeArgs = buildClaudeCodeArgs(opts.prompt, opts.model);
     const executableInfo = describeExecutableResolution("claude", {
       platform: () => (isWindows ? "win32" : platform())
     });
@@ -149,7 +183,7 @@ export class ClaudeCodeRunner implements Runner {
             AGENTTEAMS_AGENT_NAME: opts.agentConfigId
           }
         })
-      : spawnExecutable("claude", ["-p", ...modelArgs, opts.prompt], {
+      : spawnExecutable("claude", claudeArgs, {
           cwd,
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
@@ -189,7 +223,6 @@ export class ClaudeCodeRunner implements Runner {
       if (output.length > 0) {
         lastOutput = output;
         idleTimer.reset();
-        opts.onStdoutChunk?.(output);
         logger.info("Runner stdout", {
           triggerId: opts.triggerId,
           pid: child.pid,
@@ -306,10 +339,14 @@ export class ClaudeCodeRunner implements Runner {
         });
 
         if (timedOut) {
+          const trimmedOutputText = outputText.trim();
+          const resolvedOutputText = idleTimedOut && trimmedOutputText.length > 0
+            ? extractResultTextFromStreamJson(outputText)
+            : (trimmedOutputText || undefined);
           resolve({
             exitCode: 1,
             lastOutput,
-            outputText: outputText.trim() || undefined,
+            outputText: resolvedOutputText,
             errorMessage: idleTimedOut
               ? `Runner idle timed out after ${Math.round(opts.idleTimeoutMs / 60_000)}m of no output`
               : `Runner timed out after ${Math.round(opts.timeoutMs / 60_000)}m`
