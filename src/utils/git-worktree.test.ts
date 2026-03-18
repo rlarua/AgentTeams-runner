@@ -317,6 +317,9 @@ test("createWorktree writes correct Claude sandbox additionalDirectories path", 
     // Must also have sandbox allowWrite for the original repo
     const allowWrite: string[] = settings.sandbox.filesystem.allowWrite;
     assert.ok(allowWrite.includes(repo), `allowWrite should contain "${repo}", got: ${JSON.stringify(allowWrite)}`);
+    // Must have agentteams CLI in permissions.allow
+    const allow: string[] = settings.permissions.allow;
+    assert.ok(allow.includes("Bash(agentteams *)"), `allow should contain agentteams rule, got: ${JSON.stringify(allow)}`);
   } finally {
     cleanupDir(repo);
     const repoName = basename(repo);

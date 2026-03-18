@@ -54,7 +54,13 @@ export function healWorktreeConfig(authPath: string, worktreePath: string): void
     if (!cleanedDirs.includes(correctPath)) {
       cleanedDirs.push(correctPath);
     }
-    existing.permissions = { ...permissions, additionalDirectories: cleanedDirs };
+    // Allow agentteams CLI execution without permission prompts
+    const allow: string[] = permissions.allow ?? [];
+    const agentteamsRule = "Bash(agentteams *)";
+    if (!allow.includes(agentteamsRule)) {
+      allow.push(agentteamsRule);
+    }
+    existing.permissions = { ...permissions, additionalDirectories: cleanedDirs, allow };
 
     // Allow write access to the original repo (for history files, plan downloads, etc.)
     const sandbox = existing.sandbox ?? {};
