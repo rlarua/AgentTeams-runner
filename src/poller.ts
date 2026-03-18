@@ -2,6 +2,7 @@ import { logger } from "./logger.js";
 import { DaemonApiClient } from "./api-client.js";
 import { runCleanup } from "./utils/runner-cleanup.js";
 import { runConventionSync } from "./utils/convention-sync.js";
+import { loadAuthPaths, saveAuthPath } from "./utils/auth-path-store.js";
 import { removeWorktree, resolveWorktreePath } from "./utils/git-worktree.js";
 import path from "node:path";
 import type { DaemonTrigger, RuntimeConfig } from "./types.js";
@@ -22,6 +23,8 @@ type PollingDependencies = {
   processExit?: (code: number) => never;
   now?: () => number;
   keepAlive?: () => Promise<void>;
+  loadAuthPaths?: () => string[];
+  saveAuthPath?: (authPath: string) => string;
 };
 
 export const startPolling = async (
@@ -41,14 +44,28 @@ export const startPolling = async (
   const keepAlive = dependencies.keepAlive ?? (() => new Promise<void>(() => {
     // Keep process alive until shutdown signal.
   }));
+  const loadPersistedAuthPaths = dependencies.loadAuthPaths ?? loadAuthPaths;
+  const persistAuthPath = dependencies.saveAuthPath ?? saveAuthPath;
   let isPolling = false;
 
-  const knownAuthPaths = new Set<string>();
+  const knownAuthPaths = new Set<string>(loadPersistedAuthPaths());
   let lastCleanupAt = 0;
   const lastConventionSyncAt = new Map<string, number>();
 
   const onAuthPathDiscovered = (authPath: string): void => {
+    if (knownAuthPaths.has(authPath)) {
+      return;
+    }
+
     knownAuthPaths.add(authPath);
+    try {
+      persistAuthPath(authPath);
+    } catch (error) {
+      logger.warn("Failed to persist auth path", {
+        authPath,
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   };
 
   const onTrigger = createHandler(onAuthPathDiscovered);

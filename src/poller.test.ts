@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import path from "node:path";
 import test, { mock } from "node:test";
 import { logger } from "./logger.js";
 import { startPolling } from "./poller.js";
@@ -51,6 +52,7 @@ test("startPolling handles a claimed trigger, registers auth paths, and runs sch
   const intervalCallbacks: Array<() => void> = [];
   const cleanupCalls: string[] = [];
   const handledTriggers: string[] = [];
+  const savedAuthPaths: string[] = [];
   let nowValue = 0;
 
   const pending = [trigger, null];
@@ -88,6 +90,11 @@ test("startPolling handles a claimed trigger, registers auth paths, and runs sch
       throw new Error("should not exit");
     }) as (code: number) => never,
     now: () => nowValue,
+    loadAuthPaths: () => [],
+    saveAuthPath: (authPath: string) => {
+      savedAuthPaths.push(authPath);
+      return "/tmp/auth-paths.json";
+    },
     keepAlive: () => new Promise<void>((resolve) => {
       keepAliveResolve = resolve;
     })
@@ -103,6 +110,7 @@ test("startPolling handles a claimed trigger, registers auth paths, and runs sch
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(cleanupCalls, ["/auth/path"]);
+  assert.deepEqual(savedAuthPaths, ["/auth/path"]);
   assert.equal(signals.has("SIGINT"), true);
   assert.equal(signals.has("SIGTERM"), true);
   assert.equal(infos.some((entry) => entry.message === "Daemon polling started"), true);
@@ -150,6 +158,8 @@ test("startPolling logs conflicts and suppresses overlapping polling cycles", as
       throw new Error("should not exit");
     }) as (code: number) => never,
     now: () => 0,
+    loadAuthPaths: () => [],
+    saveAuthPath: () => "/tmp/auth-paths.json",
     keepAlive: () => new Promise<void>((resolve) => {
       keepAliveResolve = resolve;
     })
@@ -201,6 +211,8 @@ test("startPolling clears the interval and exits on shutdown signals", async () 
       return undefined as never;
     }) as (code: number) => never,
     now: () => 0,
+    loadAuthPaths: () => [],
+    saveAuthPath: () => "/tmp/auth-paths.json",
     keepAlive: () => new Promise<void>((resolve) => {
       keepAliveResolve = resolve;
     })
@@ -218,6 +230,66 @@ test("startPolling clears the interval and exits on shutdown signals", async () 
   sigterm();
   assert.equal(exitCode, 0);
   assert.deepEqual(cleared, [intervalHandle]);
+
+  const resolveKeepAlive = keepAliveResolve ?? (() => {
+    throw new Error("keepAlive resolver was not registered");
+  });
+  resolveKeepAlive();
+  await pollingPromise;
+});
+
+test("startPolling restores persisted auth paths for worktree removals after restart", async () => {
+  const removedWorktrees: Array<{ authPath: string; worktreePath: string; worktreeId: string }> = [];
+  const reportedStatuses: Array<{ triggerId: string; status: string }> = [];
+  const worktreeRemovalTrigger: DaemonTrigger = {
+    ...trigger,
+    id: "trigger-remove",
+    useWorktree: true,
+    worktreeId: "worktree-1",
+    worktreeStatus: "REMOVE_REQUESTED"
+  };
+
+  let keepAliveResolve: (() => void) | null = null;
+  const pollingPromise = startPolling(config, () => async () => undefined, {
+    createClient: () => ({
+      fetchPendingTrigger: async () => null,
+      claimTrigger: async () => ({ ok: true, conflict: false }),
+      fetchOrphanedCancelRequested: async () => [] as string[],
+      updateTriggerStatus: async () => undefined,
+      fetchPendingWorktreeRemovals: async () => [worktreeRemovalTrigger],
+      reportWorktreeStatus: async (triggerId: string, status: string) => {
+        reportedStatuses.push({ triggerId, status });
+      }
+    }),
+    runCleanup: async () => undefined,
+    removeWorktree: (authPath: string, worktreePath: string, worktreeId: string) => {
+      removedWorktrees.push({ authPath, worktreePath, worktreeId });
+    },
+    setInterval: (() => ({ ref() {}, unref() {} } as unknown as NodeJS.Timeout)) as typeof setInterval,
+    clearInterval: (() => undefined) as typeof clearInterval,
+    processOn: (() => undefined) as (event: NodeJS.Signals, listener: () => void) => void,
+    processExit: (() => {
+      throw new Error("should not exit");
+    }) as (code: number) => never,
+    now: () => 0,
+    loadAuthPaths: () => ["/persisted/auth/path"],
+    saveAuthPath: () => "/tmp/auth-paths.json",
+    keepAlive: () => new Promise<void>((resolve) => {
+      keepAliveResolve = resolve;
+    })
+  });
+
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.deepEqual(removedWorktrees, [{
+    authPath: "/persisted/auth/path",
+    worktreePath: path.join("/persisted/auth", ".path-worktrees", "wt-worktree-1"),
+    worktreeId: "worktree-1"
+  }]);
+  assert.deepEqual(reportedStatuses, [{
+    triggerId: "trigger-remove",
+    status: "REMOVED"
+  }]);
 
   const resolveKeepAlive = keepAliveResolve ?? (() => {
     throw new Error("keepAlive resolver was not registered");

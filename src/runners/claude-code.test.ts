@@ -8,6 +8,7 @@ test("buildClaudeCodeArgs enables stream-json mode with verbose output", () => {
     "--output-format",
     "stream-json",
     "--verbose",
+    "--dangerously-skip-permissions",
     "--model",
     "claude-sonnet"
   ]);
@@ -18,7 +19,8 @@ test("buildClaudeCodeArgs omits the model flag when no model is provided", () =>
     "-p",
     "--output-format",
     "stream-json",
-    "--verbose"
+    "--verbose",
+    "--dangerously-skip-permissions"
   ]);
 });
 
