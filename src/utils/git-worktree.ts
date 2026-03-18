@@ -45,17 +45,15 @@ export function healWorktreeConfig(authPath: string, worktreePath: string): void
     const existing = existsSync(claudeSettingsPath)
       ? JSON.parse(readFileSync(claudeSettingsPath, "utf8"))
       : {};
-    const sandbox = existing.sandbox ?? {};
-    const fs = sandbox.filesystem ?? {};
-    const allowWrite: string[] = fs.allowWrite ?? [];
     const correctPath = normalizeClaudeSandboxPath(authPath);
+    const additionalDirectories: string[] = existing.additionalDirectories ?? [];
 
     // Remove malformed entries (e.g. ///Users/... from previous bug)
-    const cleaned = allowWrite.filter((p: string) => p === correctPath || !p.endsWith(authPath));
-    if (!cleaned.includes(correctPath)) {
-      cleaned.push(correctPath);
+    const cleanedDirs = additionalDirectories.filter((p: string) => p === correctPath || !p.endsWith(authPath));
+    if (!cleanedDirs.includes(correctPath)) {
+      cleanedDirs.push(correctPath);
     }
-    existing.sandbox = { ...sandbox, filesystem: { ...fs, allowWrite: cleaned } };
+    existing.additionalDirectories = cleanedDirs;
     writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
   } catch {
     // Non-critical: sandbox config failure won't block runner

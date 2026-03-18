@@ -294,7 +294,7 @@ test("normalizeClaudeSandboxPath returns absolute path as-is", () => {
   assert.equal(normalizeClaudeSandboxPath("/home/user/repo"), "/home/user/repo");
 });
 
-test("createWorktree writes correct Claude sandbox allowWrite path", () => {
+test("createWorktree writes correct Claude sandbox additionalDirectories path", () => {
   const repo = makeTempGitRepo();
   const worktreeId = "test-wt-sandbox";
   try {
@@ -303,13 +303,13 @@ test("createWorktree writes correct Claude sandbox allowWrite path", () => {
 
     assert.equal(existsSync(settingsPath), true);
     const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-    const allowWrite: string[] = settings.sandbox.filesystem.allowWrite;
+    const additionalDirectories: string[] = settings.additionalDirectories;
 
     // Must contain the exact authPath without extra slashes
-    assert.ok(allowWrite.includes(repo), `allowWrite should contain "${repo}", got: ${JSON.stringify(allowWrite)}`);
+    assert.ok(additionalDirectories.includes(repo), `additionalDirectories should contain "${repo}", got: ${JSON.stringify(additionalDirectories)}`);
     // Must NOT contain the old triple-slash format
-    const badEntries = allowWrite.filter((p: string) => p.startsWith("//"));
-    assert.equal(badEntries.length, 0, `allowWrite should not contain //-prefixed paths, got: ${JSON.stringify(badEntries)}`);
+    const badEntries = additionalDirectories.filter((p: string) => p.startsWith("//"));
+    assert.equal(badEntries.length, 0, `additionalDirectories should not contain //-prefixed paths, got: ${JSON.stringify(badEntries)}`);
   } finally {
     cleanupDir(repo);
     const repoName = basename(repo);
@@ -317,7 +317,7 @@ test("createWorktree writes correct Claude sandbox allowWrite path", () => {
   }
 });
 
-test("healWorktreeConfig fixes malformed sandbox paths on reuse", () => {
+test("healWorktreeConfig fixes malformed additionalDirectories paths on reuse", () => {
   const repo = makeTempGitRepo();
   const worktreeId = "test-wt-heal";
   try {
@@ -325,7 +325,7 @@ test("healWorktreeConfig fixes malformed sandbox paths on reuse", () => {
     const settingsPath = join(worktreePath, ".claude", "settings.local.json");
 
     // Simulate the old bug: write a malformed entry
-    const malformed = { sandbox: { filesystem: { allowWrite: [`///${repo}`] } } };
+    const malformed = { additionalDirectories: [`///${repo}`] };
     writeFileSync(settingsPath, JSON.stringify(malformed, null, 2) + "\n", "utf-8");
 
     // Reuse the worktree (triggers healWorktreeConfig)
@@ -333,11 +333,11 @@ test("healWorktreeConfig fixes malformed sandbox paths on reuse", () => {
     assert.equal(reusedPath, worktreePath);
 
     const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-    const allowWrite: string[] = settings.sandbox.filesystem.allowWrite;
+    const additionalDirectories: string[] = settings.additionalDirectories;
 
     // Malformed entry should be replaced with correct path
-    assert.ok(allowWrite.includes(repo), `allowWrite should contain "${repo}", got: ${JSON.stringify(allowWrite)}`);
-    const badEntries = allowWrite.filter((p: string) => p.startsWith("//"));
+    assert.ok(additionalDirectories.includes(repo), `additionalDirectories should contain "${repo}", got: ${JSON.stringify(additionalDirectories)}`);
+    const badEntries = additionalDirectories.filter((p: string) => p.startsWith("//"));
     assert.equal(badEntries.length, 0, `malformed paths should be cleaned, got: ${JSON.stringify(badEntries)}`);
   } finally {
     cleanupDir(repo);

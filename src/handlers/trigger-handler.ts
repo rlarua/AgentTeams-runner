@@ -7,6 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { resolveRunnerHistoryPaths } from "../utils/runner-history.js";
 import { isGitRepo, createWorktree } from "../utils/git-worktree.js";
+import { extractResultTextFromStreamJson } from "../runners/claude-code.js";
 
 type TriggerHandlerOptions = {
   config: RuntimeConfig;
@@ -287,7 +288,8 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       logReporter.append("INFO", `Runner finished with exitCode=${runResult.exitCode}.`);
       const historyReported = await reportHistoryToDatabase(trigger.id, currentHistoryPath);
       if (!historyReported && runResult.outputText) {
-        const fallbackHistory = buildFallbackHistory(runResult.outputText, runResult.exitCode === 0 ? undefined : runResult.errorMessage);
+        const parsedOutput = extractResultTextFromStreamJson(runResult.outputText);
+        const fallbackHistory = buildFallbackHistory(parsedOutput, runResult.exitCode === 0 ? undefined : runResult.errorMessage);
         if (currentHistoryPath) {
           await writeHistoryFile(currentHistoryPath, fallbackHistory);
         }
