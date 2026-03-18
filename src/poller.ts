@@ -126,10 +126,11 @@ export const startPolling = async (
               // This authPath may not be the right one, try next
             }
           }
-          if (!removed) {
+          if (removed) {
+            await client.reportWorktreeStatus(trigger.id, "REMOVED");
+          } else {
             logger.warn("Could not find authPath for worktree removal", { triggerId: trigger.id });
           }
-          await client.reportWorktreeStatus(trigger.id, "REMOVED");
         } catch (error) {
           logger.warn("Failed to remove worktree for trigger", {
             triggerId: trigger.id,
