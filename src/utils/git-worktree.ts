@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 export function isGitRepo(dirPath: string): boolean {
@@ -111,9 +111,10 @@ export function createWorktree(authPath: string, options: {
 
   healWorktreeConfig(authPath, worktreePath);
 
-  // Symlink gitignored .env* files (root + workspace subdirs)
+  // Copy gitignored .env* files (root + workspace subdirs)
+  // Uses copy instead of symlink to avoid Prisma symlink resolution issues
   try {
-    const symlinkEnvFiles = (dir: string, prefix: string = "") => {
+    const copyEnvFiles = (dir: string, prefix: string = "") => {
       try {
         for (const entry of readdirSync(dir)) {
           if (!entry.startsWith(".env")) continue;
@@ -122,19 +123,19 @@ export function createWorktree(authPath: string, options: {
           const wtPath = path.join(worktreePath, relPath);
           // Git-tracked files (e.g. .env.example) already exist in worktree — skip them
           if (existsSync(absPath) && !existsSync(wtPath)) {
-            symlinkSync(absPath, wtPath);
+            copyFileSync(absPath, wtPath);
           }
         }
       } catch { /* ignore read errors */ }
     };
 
     // Root level
-    symlinkEnvFiles(authPath);
+    copyEnvFiles(authPath);
 
     // First-level subdirectories (workspace level)
     for (const entry of readdirSync(authPath, { withFileTypes: true })) {
       if (entry.isDirectory() && !entry.name.startsWith(".") && entry.name !== "node_modules") {
-        symlinkEnvFiles(path.join(authPath, entry.name), entry.name);
+        copyEnvFiles(path.join(authPath, entry.name), entry.name);
       }
     }
   } catch {

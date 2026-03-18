@@ -183,7 +183,7 @@ test("createWorktree throws for invalid (non-git) path", () => {
   }
 });
 
-test("createWorktree symlinks root .env files", () => {
+test("createWorktree copies root .env files", () => {
   const repo = makeTempGitRepo();
   const worktreeId = "test-wt-env-root";
   try {
@@ -193,15 +193,16 @@ test("createWorktree symlinks root .env files", () => {
 
     const worktreePath = createWorktree(repo, { worktreeId });
 
-    const envLink = join(worktreePath, ".env");
-    const envLocalLink = join(worktreePath, ".env.local");
+    const envFile = join(worktreePath, ".env");
+    const envLocalFile = join(worktreePath, ".env.local");
 
-    assert.equal(existsSync(envLink), true);
-    assert.equal(lstatSync(envLink).isSymbolicLink(), true);
-    assert.equal(readlinkSync(envLink), join(repo, ".env"));
+    assert.equal(existsSync(envFile), true);
+    assert.equal(lstatSync(envFile).isSymbolicLink(), false, ".env should be a copy, not a symlink");
+    assert.equal(readFileSync(envFile, "utf8"), "ROOT_KEY=value");
 
-    assert.equal(existsSync(envLocalLink), true);
-    assert.equal(lstatSync(envLocalLink).isSymbolicLink(), true);
+    assert.equal(existsSync(envLocalFile), true);
+    assert.equal(lstatSync(envLocalFile).isSymbolicLink(), false, ".env.local should be a copy, not a symlink");
+    assert.equal(readFileSync(envLocalFile, "utf8"), "LOCAL_KEY=value");
   } finally {
     cleanupDir(repo);
     const repoName = basename(repo);
@@ -209,7 +210,7 @@ test("createWorktree symlinks root .env files", () => {
   }
 });
 
-test("createWorktree symlinks workspace-level .env files", () => {
+test("createWorktree copies workspace-level .env files", () => {
   const repo = makeTempGitRepo();
   const worktreeId = "test-wt-env-ws";
   try {
@@ -230,16 +231,16 @@ test("createWorktree symlinks workspace-level .env files", () => {
 
     const worktreePath = createWorktree(repo, { worktreeId });
 
-    const apiEnvLink = join(worktreePath, "api", ".env");
-    const webEnvLink = join(worktreePath, "web", ".env");
+    const apiEnvFile = join(worktreePath, "api", ".env");
+    const webEnvFile = join(worktreePath, "web", ".env");
 
-    assert.equal(existsSync(apiEnvLink), true);
-    assert.equal(lstatSync(apiEnvLink).isSymbolicLink(), true);
-    assert.equal(readlinkSync(apiEnvLink), join(repo, "api", ".env"));
+    assert.equal(existsSync(apiEnvFile), true);
+    assert.equal(lstatSync(apiEnvFile).isSymbolicLink(), false, "api/.env should be a copy, not a symlink");
+    assert.equal(readFileSync(apiEnvFile, "utf8"), "DB_URL=postgres://...");
 
-    assert.equal(existsSync(webEnvLink), true);
-    assert.equal(lstatSync(webEnvLink).isSymbolicLink(), true);
-    assert.equal(readlinkSync(webEnvLink), join(repo, "web", ".env"));
+    assert.equal(existsSync(webEnvFile), true);
+    assert.equal(lstatSync(webEnvFile).isSymbolicLink(), false, "web/.env should be a copy, not a symlink");
+    assert.equal(readFileSync(webEnvFile, "utf8"), "NEXT_PUBLIC_API=http://...");
   } finally {
     cleanupDir(repo);
     const repoName = basename(repo);
@@ -256,20 +257,21 @@ test("createWorktree skips .env files that already exist in worktree (git-tracke
     execFileSync("git", ["-C", repo, "add", ".env.example"], { stdio: "pipe" });
     execFileSync("git", ["-C", repo, "commit", "-m", "add env example"], { stdio: "pipe" });
 
-    // Also create .env (gitignored — should be symlinked)
+    // Also create .env (gitignored — should be copied)
     writeFileSync(join(repo, ".env"), "SECRET=value");
 
     const worktreePath = createWorktree(repo, { worktreeId });
 
-    // .env.example should NOT be a symlink (it's a regular file from git)
+    // .env.example should NOT be overwritten (it's a regular file from git)
     const exampleFile = join(worktreePath, ".env.example");
     assert.equal(existsSync(exampleFile), true);
     assert.equal(lstatSync(exampleFile).isSymbolicLink(), false);
 
-    // .env should be a symlink
-    const envLink = join(worktreePath, ".env");
-    assert.equal(existsSync(envLink), true);
-    assert.equal(lstatSync(envLink).isSymbolicLink(), true);
+    // .env should be a copied file, not a symlink
+    const envFile = join(worktreePath, ".env");
+    assert.equal(existsSync(envFile), true);
+    assert.equal(lstatSync(envFile).isSymbolicLink(), false, ".env should be a copy, not a symlink");
+    assert.equal(readFileSync(envFile, "utf8"), "SECRET=value");
   } finally {
     cleanupDir(repo);
     const repoName = basename(repo);
