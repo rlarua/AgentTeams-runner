@@ -2,6 +2,7 @@ import { OpenCodeRunner } from "./opencode.js";
 import { ClaudeCodeRunner } from "./claude-code.js";
 import { CodexRunner } from "./codex.js";
 import { GeminiRunner } from "./gemini.js";
+import { AmpCodeRunner } from "./amp.js";
 import type { Runner } from "./types.js";
 
 export const createRunnerFactory = (runnerCmd: string) => {
@@ -15,10 +16,11 @@ export const createRunnerFactory = (runnerCmd: string) => {
         return new CodexRunner();
       case "GEMINI":
         return new GeminiRunner();
+      case "AMP":
+        return new AmpCodeRunner();
       // TODO: AIDER
       // TODO: GOOSE
       // TODO: PLANDEX
-      // TODO: AMP
       default:
         throw new Error(`Unsupported runner type: ${runnerType}`);
     }
