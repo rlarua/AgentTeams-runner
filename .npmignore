@@ -7,6 +7,9 @@ test/
 src/
 tsconfig.json
 
+# 문서
+RUNNER_PERMISSIONS.md
+
 # 개발 파일
 .git/
 .gitignore
