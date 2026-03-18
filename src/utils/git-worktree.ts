@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, symlinkSync } from "node:fs";
 import path from "node:path";
 
 export function isGitRepo(dirPath: string): boolean {
@@ -35,49 +35,8 @@ export function healWorktreeConfig(authPath: string, worktreePath: string): void
     }
   }
 
-  // Ensure Claude Code sandbox allows access to the original repo
-  try {
-    const claudeSettingsDir = path.join(worktreePath, ".claude");
-    const claudeSettingsPath = path.join(claudeSettingsDir, "settings.local.json");
-    if (!existsSync(claudeSettingsDir)) {
-      mkdirSync(claudeSettingsDir, { recursive: true });
-    }
-    const existing = existsSync(claudeSettingsPath)
-      ? JSON.parse(readFileSync(claudeSettingsPath, "utf8"))
-      : {};
-    const correctPath = normalizeClaudeSandboxPath(authPath);
-    const permissions = existing.permissions ?? {};
-    const additionalDirectories: string[] = permissions.additionalDirectories ?? [];
-
-    // Remove malformed entries (e.g. ///Users/... from previous bug)
-    const cleanedDirs = additionalDirectories.filter((p: string) => p === correctPath || !p.endsWith(authPath));
-    if (!cleanedDirs.includes(correctPath)) {
-      cleanedDirs.push(correctPath);
-    }
-    // Allow agentteams CLI execution without permission prompts
-    const allow: string[] = permissions.allow ?? [];
-    const agentteamsRule = "Bash(agentteams *)";
-    if (!allow.includes(agentteamsRule)) {
-      allow.push(agentteamsRule);
-    }
-    existing.permissions = { ...permissions, additionalDirectories: cleanedDirs, allow };
-
-    // Allow write access to the original repo (for history files, plan downloads, etc.)
-    const sandbox = existing.sandbox ?? {};
-    const fs = sandbox.filesystem ?? {};
-    const allowWrite: string[] = fs.allowWrite ?? [];
-    const cleanedWrite = allowWrite.filter((p: string) => p === correctPath || !p.endsWith(authPath));
-    if (!cleanedWrite.includes(correctPath)) {
-      cleanedWrite.push(correctPath);
-    }
-    existing.sandbox = { ...sandbox, filesystem: { ...fs, allowWrite: cleanedWrite } };
-
-    // Clean up legacy top-level additionalDirectories if present
-    delete existing.additionalDirectories;
-    writeFileSync(claudeSettingsPath, JSON.stringify(existing, null, 2) + "\n", "utf-8");
-  } catch {
-    // Non-critical: sandbox config failure won't block runner
-  }
+  // Claude Code runner uses --dangerously-skip-permissions, so no sandbox
+  // or permission settings are needed in settings.local.json.
 }
 
 export function createWorktree(authPath: string, options: {

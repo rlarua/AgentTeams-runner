@@ -296,67 +296,8 @@ test("normalizeClaudeSandboxPath returns absolute path as-is", () => {
   assert.equal(normalizeClaudeSandboxPath("/home/user/repo"), "/home/user/repo");
 });
 
-test("createWorktree writes correct Claude sandbox additionalDirectories path", () => {
-  const repo = makeTempGitRepo();
-  const worktreeId = "test-wt-sandbox";
-  try {
-    const worktreePath = createWorktree(repo, { worktreeId });
-    const settingsPath = join(worktreePath, ".claude", "settings.local.json");
-
-    assert.equal(existsSync(settingsPath), true);
-    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-    const additionalDirectories: string[] = settings.permissions.additionalDirectories;
-
-    // Must contain the exact authPath without extra slashes
-    assert.ok(additionalDirectories.includes(repo), `additionalDirectories should contain "${repo}", got: ${JSON.stringify(additionalDirectories)}`);
-    // Must NOT contain the old triple-slash format
-    const badEntries = additionalDirectories.filter((p: string) => p.startsWith("//"));
-    assert.equal(badEntries.length, 0, `additionalDirectories should not contain //-prefixed paths, got: ${JSON.stringify(badEntries)}`);
-    // Must NOT have top-level additionalDirectories
-    assert.equal(settings.additionalDirectories, undefined, "top-level additionalDirectories should not exist");
-    // Must also have sandbox allowWrite for the original repo
-    const allowWrite: string[] = settings.sandbox.filesystem.allowWrite;
-    assert.ok(allowWrite.includes(repo), `allowWrite should contain "${repo}", got: ${JSON.stringify(allowWrite)}`);
-    // Must have agentteams CLI in permissions.allow
-    const allow: string[] = settings.permissions.allow;
-    assert.ok(allow.includes("Bash(agentteams *)"), `allow should contain agentteams rule, got: ${JSON.stringify(allow)}`);
-  } finally {
-    cleanupDir(repo);
-    const repoName = basename(repo);
-    cleanupDir(join(dirname(repo), `.${repoName}-worktrees`));
-  }
-});
-
-test("healWorktreeConfig fixes malformed additionalDirectories paths on reuse", () => {
-  const repo = makeTempGitRepo();
-  const worktreeId = "test-wt-heal";
-  try {
-    const worktreePath = createWorktree(repo, { worktreeId });
-    const settingsPath = join(worktreePath, ".claude", "settings.local.json");
-
-    // Simulate the old bug: write a malformed entry at top-level
-    const malformed = { additionalDirectories: [`///${repo}`] };
-    writeFileSync(settingsPath, JSON.stringify(malformed, null, 2) + "\n", "utf-8");
-
-    // Reuse the worktree (triggers healWorktreeConfig)
-    const reusedPath = createWorktree(repo, { worktreeId });
-    assert.equal(reusedPath, worktreePath);
-
-    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
-    const additionalDirectories: string[] = settings.permissions.additionalDirectories;
-
-    // Malformed entry should be replaced with correct path
-    assert.ok(additionalDirectories.includes(repo), `additionalDirectories should contain "${repo}", got: ${JSON.stringify(additionalDirectories)}`);
-    const badEntries = additionalDirectories.filter((p: string) => p.startsWith("//"));
-    assert.equal(badEntries.length, 0, `malformed paths should be cleaned, got: ${JSON.stringify(badEntries)}`);
-    // Legacy top-level key should be cleaned up
-    assert.equal(settings.additionalDirectories, undefined, "legacy top-level additionalDirectories should be removed");
-  } finally {
-    cleanupDir(repo);
-    const repoName = basename(repo);
-    cleanupDir(join(dirname(repo), `.${repoName}-worktrees`));
-  }
-});
+// Claude Code runner uses --dangerously-skip-permissions, so no sandbox
+// or permission settings are written to settings.local.json.
 
 test("healWorktreeConfig restores missing .agentteams symlink on reuse", () => {
   const repo = makeTempGitRepo();

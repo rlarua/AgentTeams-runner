@@ -19,7 +19,7 @@ const OUTPUT_CAPTURE_MAX = 200_000;
 
 export const buildClaudeCodeArgs = (model?: string | null): string[] => {
   const modelArgs = model ? ["--model", model] : [];
-  return ["-p", "--output-format", "stream-json", "--verbose", ...modelArgs];
+  return ["-p", "--output-format", "stream-json", "--verbose", "--dangerously-skip-permissions", ...modelArgs];
 };
 
 export const extractResultTextFromStreamJson = (outputText: string): string => {
