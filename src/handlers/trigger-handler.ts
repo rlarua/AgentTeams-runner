@@ -120,6 +120,12 @@ export const createTriggerHandler = (options: TriggerHandlerOptions, dependencie
       "This file defines mandatory project rules, coding conventions, and workflow guidelines.",
       "Skipping this step will result in non-compliant output.",
       "",
+      "**[Branch Rule]**",
+      "Do not use the worktree branch name directly.",
+      "The runner creates worktrees on branches like `worktree/{id}`.",
+      "When you need to push or create a PR, always create a new branch with a descriptive name (e.g., `feat/add-login-api`, `fix/null-pointer-dashboard`).",
+      "The `worktree/…` branch is a system-managed throwaway — pushing or opening a PR from it pollutes the branch list.",
+      "",
     ].join("\n");
 
     const planModePrefix = trigger.planMode
