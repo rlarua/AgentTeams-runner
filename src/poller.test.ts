@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as fsModule from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test, { mock } from "node:test";
 import { logger } from "./logger.js";
@@ -243,6 +244,11 @@ test("startPolling clears the interval and exits on shutdown signals", async () 
 test("startPolling restores persisted auth paths for worktree removals after restart", async () => {
   const removedWorktrees: Array<{ authPath: string; worktreePath: string; worktreeId: string }> = [];
   const reportedStatuses: Array<{ triggerId: string; status: string; worktreeError?: string }> = [];
+  const tempRoot = fsModule.mkdtempSync(path.join(os.tmpdir(), "agentrunner-poller-"));
+  const authPath = path.join(tempRoot, "path");
+  const worktreePath = path.join(tempRoot, ".path-worktrees", "wt-worktree-1");
+  fsModule.mkdirSync(authPath, { recursive: true });
+  fsModule.mkdirSync(worktreePath, { recursive: true });
   const worktreeRemovalTrigger: DaemonTrigger = {
     ...trigger,
     id: "trigger-remove",
@@ -274,7 +280,7 @@ test("startPolling restores persisted auth paths for worktree removals after res
       throw new Error("should not exit");
     }) as (code: number) => never,
     now: () => 0,
-    loadAuthPaths: () => ["/persisted/auth/path"],
+    loadAuthPaths: () => [authPath],
     saveAuthPath: () => "/tmp/auth-paths.json",
     keepAlive: () => new Promise<void>((resolve) => {
       keepAliveResolve = resolve;
@@ -284,8 +290,8 @@ test("startPolling restores persisted auth paths for worktree removals after res
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(removedWorktrees, [{
-    authPath: "/persisted/auth/path",
-    worktreePath: path.join("/persisted/auth", ".path-worktrees", "wt-worktree-1"),
+    authPath,
+    worktreePath,
     worktreeId: "worktree-1"
   }]);
   assert.deepEqual(reportedStatuses, [{ triggerId: "trigger-remove", status: "REMOVED", worktreeError: undefined }]);
@@ -295,6 +301,7 @@ test("startPolling restores persisted auth paths for worktree removals after res
   });
   resolveKeepAlive();
   await pollingPromise;
+  fsModule.rmSync(tempRoot, { recursive: true, force: true });
 });
 
 test("startPolling reports FAILED when no persisted auth path matches the worktree", async () => {
@@ -354,6 +361,11 @@ test("startPolling reports FAILED when no persisted auth path matches the worktr
 
 test("startPolling reports FAILED when worktree removal throws after matching a path", async () => {
   const reportedStatuses: Array<{ triggerId: string; status: string; worktreeError?: string }> = [];
+  const tempRoot = fsModule.mkdtempSync(path.join(os.tmpdir(), "agentrunner-poller-"));
+  const authPath = path.join(tempRoot, "path");
+  const worktreePath = path.join(tempRoot, ".path-worktrees", "wt-worktree-failed");
+  fsModule.mkdirSync(authPath, { recursive: true });
+  fsModule.mkdirSync(worktreePath, { recursive: true });
   const worktreeRemovalTrigger: DaemonTrigger = {
     ...trigger,
     id: "trigger-remove-failed",
@@ -361,8 +373,6 @@ test("startPolling reports FAILED when worktree removal throws after matching a 
     worktreeId: "worktree-failed",
     worktreeStatus: "REMOVE_REQUESTED"
   };
-  const matchingWorktreePath = path.join("/persisted/auth", ".path-worktrees", "wt-worktree-failed");
-  mock.method(fsModule, "existsSync", (candidatePath: fsModule.PathLike) => String(candidatePath) === matchingWorktreePath);
 
   let keepAliveResolve: (() => void) | null = null;
   const pollingPromise = startPolling(config, () => async () => undefined, {
@@ -387,7 +397,7 @@ test("startPolling reports FAILED when worktree removal throws after matching a 
       throw new Error("should not exit");
     }) as (code: number) => never,
     now: () => 0,
-    loadAuthPaths: () => ["/persisted/auth/path"],
+    loadAuthPaths: () => [authPath],
     saveAuthPath: () => "/tmp/auth-paths.json",
     keepAlive: () => new Promise<void>((resolve) => {
       keepAliveResolve = resolve;
@@ -407,4 +417,5 @@ test("startPolling reports FAILED when worktree removal throws after matching a 
   });
   resolveKeepAlive();
   await pollingPromise;
+  fsModule.rmSync(tempRoot, { recursive: true, force: true });
 });
