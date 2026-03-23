@@ -68,7 +68,7 @@ const terminateRunnerChild = (
     return;
   }
 
-  logger.warn(reason === "cancel" ? "Runner cancellation requested; sending SIGTERM" : "Runner timeout reached; sending SIGTERM", {
+  logger.warn(reason === "cancel" ? "Runner cancellation requested; sending SIGTERM" : "Runner fail-safe timeout reached; sending SIGTERM", {
     triggerId,
     pid: child.pid
   });
@@ -329,7 +329,7 @@ export class AmpCodeRunner implements Runner {
             outputText: resolvedOutputText,
             errorMessage: idleTimedOut
               ? `Runner idle timed out after ${Math.round(opts.idleTimeoutMs / 60_000)}m of no output`
-              : `Runner timed out after ${Math.round(opts.timeoutMs / 60_000)}m`
+              : `Runner fail-safe timed out after ${Math.round(opts.timeoutMs / 3_600_000)}h`
           });
           return;
         }

@@ -120,6 +120,20 @@ test("resolveRuntimeConfig prefers environment variables and applies numeric par
   });
 });
 
+test("resolveRuntimeConfig uses the 24-hour fail-safe timeout by default", async () => {
+  await withTempHome(async () => {
+    await writeDaemonConfigFile({
+      daemonToken: "file-token",
+      apiUrl: "https://file.example"
+    });
+
+    const result = await resolveRuntimeConfig();
+
+    assert.equal(result.timeoutMs, 86_400_000);
+    assert.equal(result.idleTimeoutMs, 600_000);
+  });
+});
+
 test("resolveRuntimeConfig throws when daemon token is missing", async () => {
   await withTempHome(async () => {
     await assert.rejects(

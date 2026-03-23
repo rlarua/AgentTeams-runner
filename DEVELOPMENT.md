@@ -112,12 +112,15 @@ npm run dev
 | 변수 | 기본값 | 설명 |
 |---|---|---|
 | `POLLING_INTERVAL_MS` | `30000` (30초) | 트리거 폴링 주기 |
-| `TIMEOUT_MS` | `1800000` (30분) | 러너 프로세스 타임아웃 |
+| `IDLE_TIMEOUT_MS` | `600000` (10분) | 기본 운영 타이머. stdout/stderr 출력이 일정 시간 없으면 러너를 종료 |
+| `TIMEOUT_MS` | `86400000` (24시간) | fail-safe 타이머. idle timeout으로 정리되지 않는 비정상 장기 실행만 최종 차단 |
 | `RUNNER_CMD` | `opencode` | 에이전트 실행 명령어 |
 | `CODEX_SANDBOX_LEVEL` | `off` | Codex 러너 샌드박스 레벨. `workspace-write` 또는 `off` 허용. 자동시작·수동 시작 모두 기본값 `off` |
 | `LOG_LEVEL` | `info` | 로그 레벨: `debug`, `info`, `warn`, `error` |
 | `DAEMON_VERBOSE_RUNNER_LOGS` | `true` | `false`면 시작/종료/에러 로그만 출력 |
 | `DAEMON_PROMPT_LOG_MODE` | `preview` | 프롬프트 로그: `off`, `length`, `preview`, `full` |
+
+기본 정책은 `idle timeout 중심 + 24시간 fail-safe`입니다. 즉, 정상 운영에서는 `IDLE_TIMEOUT_MS`가 멈춘 작업을 정리하고, `TIMEOUT_MS`는 작업 유실을 줄이기 위해 거의 걸리지 않는 최후 안전장치로만 유지합니다.
 
 > `CODEX_SANDBOX_LEVEL=off`는 `codex --dangerously-bypass-approvals-and-sandbox`를 사용합니다. Git 쓰기와 임의 명령 실행이 모두 가능해지므로 로컬 개발/검증 용도로만 사용하세요.
 >
@@ -186,7 +189,7 @@ dir "%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup\\agentrunner-s
 2. pending 트리거 폴링 → claim
 3. 런타임 정보 조회 (작업 경로, API 키)
 4. `RUNNER_CMD run "<prompt>"` 프로세스 실행
-5. 종료 코드/타임아웃에 따라 트리거 상태 업데이트
+5. 종료 코드, idle timeout, 24시간 fail-safe timeout에 따라 트리거 상태 업데이트
 6. 동일 `agentConfigId`에 프로세스 실행 중이면 → `REJECTED`
 
 ## 업데이트/재시작 UX
